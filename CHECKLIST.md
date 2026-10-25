@@ -20,8 +20,8 @@
 - [x] Acceptance: deterministic mocked SQLi/false-positive check; live API not configured.
 
 ## M4 — Patching and diffing
-- [ ] Implement path-safe patch copy, unified diff, and multiset classification.
-- [ ] Acceptance: original unchanged; patch copy and classification tests pass.
+- [x] Implement path-safe patch copy, unified diff, and multiset classification.
+- [x] Acceptance: original unchanged; patch copy and classification tests pass (6 passed).
 
 ## M5 — Regression and full pipeline
 - [ ] Implement regression tests, pipeline, and full CLI.
