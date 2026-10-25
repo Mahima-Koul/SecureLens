@@ -1,0 +1,10 @@
+.env
+.cache/
+.venv/
+workdir/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+eval/results.json
+eval/results.md
+.pytest-tmp/

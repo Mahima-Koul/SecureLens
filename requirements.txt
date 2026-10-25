@@ -1,0 +1,8 @@
+openai
+semgrep
+bandit
+pytest
+streamlit
+pydantic
+rich
+python-dotenv
