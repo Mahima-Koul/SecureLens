@@ -164,6 +164,12 @@ def run_pipeline(
         report.errors.append("Patch, rescan, and patched regression stages were skipped because do_fix=False.")
 
     report.timings = timings
+    stats = getattr(client, "stats", None)
+    report.llm_stats = {
+        "cache_hits": getattr(stats, "hits", 0),
+        "cache_misses": getattr(stats, "misses", 0),
+        "api_calls": getattr(stats, "api_calls", 0),
+    }
     return finalize_report(report)
 
 

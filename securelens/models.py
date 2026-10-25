@@ -85,5 +85,6 @@ class PipelineReport(BaseModel):
     regression: RegressionResult | None = None
     errors: list[str] = Field(default_factory=list)
     timings: dict[str, float] = Field(default_factory=dict)
+    llm_stats: dict[str, int] = Field(default_factory=dict)
     final_status: Literal["SAFE", "RISKY", "INCOMPLETE"] = "INCOMPLETE"
     status_reasons: list[str] = Field(default_factory=list)

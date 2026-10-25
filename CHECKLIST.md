@@ -28,13 +28,13 @@
 - [x] Acceptance: offline full pipeline completed on all four samples; mocked `wow_app` produced newly failing tests. Live model was unavailable and surfaced as unresolved/RISKY.
 
 ## M6 — Streamlit UI
-- [ ] Implement staged UI and session-state persistence.
-- [ ] Acceptance: `streamlit run ui/app.py` starts and sample flow is exercised.
+- [x] Implement staged UI with sample/custom path, model/offline controls, findings and context, patch diff, rescan, regression, and status results.
+- [x] Acceptance: Streamlit served on localhost; offline SQLi sample flow and session-state persistence were exercised in the browser.
 
 ## M7 — Evaluation, documentation, and final tests
-- [ ] Implement evaluation script and complete README/docs.
-- [ ] Acceptance: tests pass; evaluation generated; every requirement has a status.
+- [x] Implement evaluation script with per-sample/aggregate metrics, ground-truth matching, LLM cache/API counters, and unknown outcomes for incomplete samples; complete README and schema docs.
+- [x] Acceptance: 29 unit tests and 18 sample tests pass; offline evaluation generated for four samples; requirements and milestone evidence recorded.
 
 ## Final review
-- [ ] Final security and regression review.
-- [ ] README setup and demo verified from a clean environment.
+- [x] Final security and regression review; patch isolation and conservative failure states documented and checked.
+- [x] README setup and CLI/UI/evaluation demo commands reviewed against the installed project environment.
