@@ -1,0 +1,7 @@
+{
+  "expected_alerts": [
+    {"rule_id_or_category": "hardcoded-secret", "line_hint": 7, "is_real": true, "note": "A credential-like value is embedded in source; the value is a fake demo token."},
+    {"rule_id_or_category": "unsafe-deserialization", "line_hint": 16, "is_real": true, "note": "pickle.loads can execute attacker-controlled pickle payloads."},
+    {"rule_id_or_category": "weak-hash", "line_hint": 21, "is_real": false, "note": "MD5 is used only as an explicitly non-security checksum."}
+  ]
+}

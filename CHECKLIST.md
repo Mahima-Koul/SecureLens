@@ -11,9 +11,9 @@
 - [x] Run `python -m pytest -q tests/test_llm.py --basetemp=.pytest-tmp` (3 passed).
 
 ## M2 — Scanner, context, and samples
-- [ ] Implement Semgrep/Bandit scanner and AST context extraction.
-- [ ] Create four sample projects, tests, and ground truth.
-- [ ] Acceptance: scan and sample pytest checks for all samples.
+- [x] Implement Semgrep/Bandit scanner and AST context extraction.
+- [x] Create four sample projects, tests, and ground truth.
+- [x] Acceptance: scan CLI and sample pytest checks for all samples (scanner findings emitted; sample tests 18 passed).
 
 ## M3 — LLM triage
 - [ ] Implement conservative structured triage.

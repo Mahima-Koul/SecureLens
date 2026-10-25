@@ -1,0 +1,5 @@
+{
+  "expected_alerts": [
+    {"rule_id_or_category": "unsafe-evaluation", "line_hint": 20, "is_real": true, "note": "eval on caller-provided text is unsafe even with builtins removed; a compatible fix needs a restricted arithmetic AST evaluator."}
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "expected_alerts": [
+    {"rule_id_or_category": "sql-injection", "line_hint": 17, "is_real": true, "note": "User-controlled name is interpolated into executable SQL."},
+    {"rule_id_or_category": "parameterized-query", "line_hint": 28, "is_real": false, "note": "The safe function passes values as SQLite parameters."}
+  ]
+}

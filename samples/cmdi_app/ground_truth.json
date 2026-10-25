@@ -1,0 +1,6 @@
+{
+  "expected_alerts": [
+    {"rule_id_or_category": "command-injection", "line_hint": 8, "is_real": true, "note": "Untrusted text is interpolated into a shell command with shell=True."},
+    {"rule_id_or_category": "constant-command", "line_hint": 14, "is_real": false, "note": "The command is a fixed literal and contains no user-controlled value."}
+  ]
+}
