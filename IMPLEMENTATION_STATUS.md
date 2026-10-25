@@ -26,7 +26,7 @@
 - [x] CLI, UI, sample suites, offline evaluation, compile check, and whitespace check completed.
 - [x] README setup and CLI/UI/evaluation commands documented and reviewed against the installed project environment.
 - [x] Commit M7 and all earlier milestones.
-- [ ] Push the committed changes to `origin`.
+- [x] Push completed: `main` updated on `origin` through M7 commit `3d20099` on 2026-10-25.
 
 ## Milestone results
 | Milestone | Status | Acceptance checks | Notes |
@@ -77,7 +77,7 @@
 - Live OpenAI calls were not exercised because no API key is configured; deterministic mocked acceptance passed and offline cache misses remain explicit.
 
 ## Next exact action
-1. Push the committed `main` branch to `origin` and confirm it is up to date.
+1. No remaining implementation work; all milestones are committed and pushed.
 
 ## Resume instructions
 Read this file and CHECKLIST.md, inspect the working tree, verify the current milestone's files, rerun relevant checks, and continue from the next incomplete task.
