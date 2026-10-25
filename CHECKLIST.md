@@ -16,8 +16,8 @@
 - [x] Acceptance: scan CLI and sample pytest checks for all samples (scanner findings emitted; sample tests 18 passed).
 
 ## M3 — LLM triage
-- [ ] Implement conservative structured triage.
-- [ ] Acceptance: live SQLi/false-positive check or deterministic mocked test; record live status.
+- [x] Implement conservative structured triage.
+- [x] Acceptance: deterministic mocked SQLi/false-positive check; live API not configured.
 
 ## M4 — Patching and diffing
 - [ ] Implement path-safe patch copy, unified diff, and multiset classification.
