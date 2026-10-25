@@ -24,8 +24,8 @@
 - [x] Acceptance: original unchanged; patch copy and classification tests pass (6 passed).
 
 ## M5 — Regression and full pipeline
-- [ ] Implement regression tests, pipeline, and full CLI.
-- [ ] Acceptance: full pipeline runs on all four samples; `wow_app` demonstrates regression/new finding.
+- [x] Implement regression tests, pipeline, and full CLI.
+- [x] Acceptance: offline full pipeline completed on all four samples; mocked `wow_app` produced newly failing tests. Live model was unavailable and surfaced as unresolved/RISKY.
 
 ## M6 — Streamlit UI
 - [ ] Implement staged UI and session-state persistence.

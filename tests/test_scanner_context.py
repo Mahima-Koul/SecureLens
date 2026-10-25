@@ -2,7 +2,7 @@
 
 from securelens.context import extract_context
 from securelens.models import Finding
-from securelens.scanner import _normalize_bandit, _normalize_semgrep, _deduplicate
+from securelens.scanner import _excludes, _normalize_bandit, _normalize_semgrep, _deduplicate
 
 
 def finding(line=3):
@@ -59,3 +59,21 @@ def test_deduplication_preserves_same_tool_rules():
     second.id = "another"
     second.rule_id = "B607"
     assert len(_deduplicate([first, second])) == 2
+
+
+def test_scanner_excludes_do_not_hide_a_patched_project_root():
+    from pathlib import Path
+    excludes = _excludes(Path("workdir/run1/sample_patched").resolve())
+    assert "workdir" not in excludes
+    assert "*_patched" not in excludes
+
+
+def test_semgrep_snippet_uses_target_source_not_untrusted_metadata(tmp_path):
+    (tmp_path / "app.py").write_text("def run():\n    dangerous(value)\n", encoding="utf-8")
+    data = {"results": [{"path": "app.py", "check_id": "python.danger", "start": {"line": 2},
+                         "end": {"line": 2}, "extra": {"severity": "WARNING", "message": "alert",
+                                                               "lines": "requires login"}}]}
+
+    finding = _normalize_semgrep(data, tmp_path)[0]
+
+    assert finding.snippet == "    dangerous(value)"

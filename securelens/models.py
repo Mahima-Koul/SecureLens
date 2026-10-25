@@ -74,12 +74,16 @@ class PipelineReport(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     project: str
+    patched_project: str | None = None
     findings: list[Finding] = Field(default_factory=list)
     verdicts: list[Verdict] = Field(default_factory=list)
     confirmed: list[Finding] = Field(default_factory=list)
     dismissed: list[Finding] = Field(default_factory=list)
+    unresolved: list[Finding] = Field(default_factory=list)
     patches: list[Patch] = Field(default_factory=list)
     diff: DiffResult | None = None
     regression: RegressionResult | None = None
     errors: list[str] = Field(default_factory=list)
     timings: dict[str, float] = Field(default_factory=dict)
+    final_status: Literal["SAFE", "RISKY", "INCOMPLETE"] = "INCOMPLETE"
+    status_reasons: list[str] = Field(default_factory=list)

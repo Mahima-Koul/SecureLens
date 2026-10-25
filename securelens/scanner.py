@@ -50,9 +50,10 @@ def _run_semgrep(root: Path, timeout: int, config_override: str | None) -> tuple
     """Run Semgrep, retrying its default registry config with auto on fetch failure."""
     config = config_override or "p/python"
     semgrep_path = shutil.which("semgrep") or str(Path(sys.executable).with_name("semgrep.exe"))
-    base = [semgrep_path, "scan", "--json", "--quiet", "--metrics", "off", "--config", config]
+    base = [semgrep_path, "scan", "--json", "--quiet", "--no-git-ignore", "--metrics", "off", "--config", config]
+    excludes = _excludes(root)
     try:
-        result = subprocess.run(base + _excludes() + [str(root)], capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(base + excludes + [str(root)], capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
         return None, "Semgrep is not installed; install requirements.txt to enable this scanner."
     except subprocess.TimeoutExpired:
@@ -66,7 +67,7 @@ def _run_semgrep(root: Path, timeout: int, config_override: str | None) -> tuple
     if not config_override and any(token in diagnostic.lower() for token in ("network", "fetch", "registry", "resolve")):
         warnings.warn("Semgrep p/python registry config could not be fetched; retrying with --config auto.", RuntimeWarning)
         try:
-            fallback = subprocess.run(["semgrep", "scan", "--json", "--quiet", "--metrics", "off", "--config", "auto", *_excludes(), str(root)], capture_output=True, text=True, timeout=timeout)
+            fallback = subprocess.run([semgrep_path, "scan", "--json", "--quiet", "--no-git-ignore", "--metrics", "off", "--config", "auto", *excludes, str(root)], capture_output=True, text=True, timeout=timeout)
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
             return None, f"Semgrep auto fallback failed: {type(exc).__name__}."
         if fallback.returncode == 0:
@@ -81,7 +82,10 @@ def _run_semgrep(root: Path, timeout: int, config_override: str | None) -> tuple
 def _run_bandit(root: Path, timeout: int) -> tuple[dict[str, Any] | None, str | None]:
     """Run Bandit recursively in JSON mode."""
     try:
-        result = subprocess.run([sys.executable, "-m", "bandit", "-r", str(root), "-f", "json", "-x", "tests,*/.venv/*,*/venv/*,*/.cache/*,*/workdir/*"], capture_output=True, text=True, timeout=timeout)
+        excluded = "tests,*/.venv/*,*/venv/*,*/.cache/*"
+        if "workdir" not in root.parts:
+            excluded += ",*/workdir/*"
+        result = subprocess.run([sys.executable, "-m", "bandit", "-r", str(root), "-f", "json", "-x", excluded], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return None, f"Bandit exceeded the {timeout}s timeout."
     if result.returncode in (0, 1):
@@ -92,12 +96,15 @@ def _run_bandit(root: Path, timeout: int) -> tuple[dict[str, Any] | None, str | 
     return None, f"Bandit failed (exit {result.returncode}): {(result.stderr or result.stdout).strip()[-1000:]}"
 
 
-def _excludes() -> list[str]:
+def _excludes(root: Path) -> list[str]:
     """Build scanner excludes for non-production and generated files."""
     excludes: list[str] = []
-    for name in sorted(IGNORED_PARTS):
+    ignored = IGNORED_PARTS - ({"workdir"} if "workdir" in root.parts else set())
+    for name in sorted(ignored):
         excludes.extend(["--exclude", name])
-    excludes.extend(["--exclude", "*_patched", "--exclude", "test_*.py", "--exclude", "*_test.py"])
+    if not root.name.endswith("_patched"):
+        excludes.extend(["--exclude", "*_patched"])
+    excludes.extend(["--exclude", "test_*.py", "--exclude", "*_test.py"])
     return excludes
 
 
@@ -145,7 +152,9 @@ def _normalize_semgrep(data: dict[str, Any], root: Path) -> list[Finding]:
         line = int((item.get("start") or {}).get("line", 1))
         message = str(extra.get("message", rule))
         severity = _severity(extra.get("severity"))
-        snippet = str(extra.get("lines", ""))
+        fallback_snippet = str(extra.get("lines", ""))
+        end_line = int((item.get("end") or {}).get("line", line))
+        snippet = _source_snippet(root, path, line, end_line) or fallback_snippet
         findings.append(Finding(id=_stable_id("semgrep", rule, path, line, message), tool="semgrep", rule_id=rule, file=path, line=line, severity=severity, message=message, snippet=snippet, fingerprint=_fingerprint(rule, snippet)))
     return findings
 
@@ -169,6 +178,19 @@ def _fingerprint(rule: str, snippet: str) -> str:
     import hashlib
     normalized = re.sub(r"\s+", " ", snippet).strip()
     return hashlib.sha1(f"{rule}{normalized}".encode()).hexdigest()
+
+
+def _source_snippet(root: Path, relative: str, start_line: int, end_line: int) -> str:
+    """Read matched source lines instead of trusting malformed scanner metadata."""
+    try:
+        lines = (root / relative).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    start = max(1, start_line)
+    end = min(len(lines), max(start, end_line))
+    if start > len(lines):
+        return ""
+    return "\n".join(lines[start - 1:end])
 
 
 def _category(rule: str, message: str) -> str:
