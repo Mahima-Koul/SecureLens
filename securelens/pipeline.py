@@ -57,11 +57,13 @@ def triage_stage(
     return verdicts, confirmed, dismissed, unresolved, errors
 
 
-def fix_stage(
-    project_dir: str | Path, confirmed: list[Finding], *,
-    llm_client: LLMClient | None = None, workdir: str | Path | None = None,
-) -> tuple[list[Patch], Path | None, list[str]]:
-    """Generate per-file patches and apply valid changes to an isolated copy."""
+def generate_patches_stage(
+    project_dir: str | Path,
+    confirmed: list[Finding],
+    *,
+    llm_client: LLMClient | None = None,
+) -> tuple[list[Patch], list[str]]:
+    """Generate per-file patches without applying them, leaving status as pending."""
     root = Path(project_dir).resolve()
     grouped: dict[str, list[Finding]] = defaultdict(list)
     for finding in confirmed:
@@ -73,12 +75,55 @@ def fix_stage(
             patches.append(generate_patch(root / relative, items, project_dir=root, llm_client=llm_client))
         except Exception as exc:
             errors.append(f"Patch generation failed for {relative} ({type(exc).__name__}).")
+    return patches, errors
+
+
+def apply_patches_stage(
+    project_dir: str | Path,
+    patches: list[Patch],
+    *,
+    workdir: str | Path | None = None,
+    require_approval: bool = True,
+) -> tuple[Path | None, list[str]]:
+    """Apply approved patches to an isolated copy, ignoring pending or rejected patches."""
+    root = Path(project_dir).resolve()
+    errors: list[str] = []
+    if require_approval:
+        to_apply = [patch for patch in patches if patch.status == "approved"]
+        if not to_apply:
+            return None, ["No approved patches to apply; pending and rejected patches were not applied."]
+    else:
+        to_apply = patches
+
     try:
-        patched_dir = apply_patches(root, patches, workdir=workdir)
-        return patches, patched_dir, errors
+        patched_dir = apply_patches(root, to_apply, workdir=workdir)
+        return patched_dir, errors
     except Exception as exc:
         errors.append(f"Patch application failed ({type(exc).__name__}): {exc}")
-        return patches, None, errors
+        return None, errors
+
+
+def fix_stage(
+    project_dir: str | Path,
+    confirmed: list[Finding],
+    *,
+    llm_client: LLMClient | None = None,
+    workdir: str | Path | None = None,
+    auto_approve: bool = True,
+) -> tuple[list[Patch], Path | None, list[str]]:
+    """Generate per-file patches and apply valid changes to an isolated copy."""
+    patches, gen_errors = generate_patches_stage(project_dir, confirmed, llm_client=llm_client)
+    if not patches:
+        return patches, None, gen_errors
+
+    if auto_approve:
+        for patch in patches:
+            patch.status = "approved"
+
+    patched_dir, apply_errors = apply_patches_stage(
+        project_dir, patches, workdir=workdir, require_approval=not auto_approve,
+    )
+    return patches, patched_dir, gen_errors + apply_errors
 
 
 def diff_stage(
@@ -119,6 +164,7 @@ def run_pipeline(
     llm_client: LLMClient | None = None,
     workdir: str | Path | None = None,
     timeout: int | None = None,
+    auto_approve: bool = True,
 ) -> PipelineReport:
     """Execute the complete assessment while preserving partial results."""
     root = Path(project_dir).resolve()
@@ -147,7 +193,9 @@ def run_pipeline(
     if do_fix:
         started = time.perf_counter()
         run_workdir = Path(workdir) if workdir is not None else Path.cwd() / "workdir" / f"run_{root.name}_{uuid.uuid4().hex[:10]}"
-        report.patches, patched_dir, errors = fix_stage(root, report.confirmed, llm_client=client, workdir=run_workdir)
+        report.patches, patched_dir, errors = fix_stage(
+            root, report.confirmed, llm_client=client, workdir=run_workdir, auto_approve=auto_approve,
+        )
         report.errors.extend(errors)
         timings["patch"] = time.perf_counter() - started
         if patched_dir:
