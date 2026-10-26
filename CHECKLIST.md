@@ -1,8 +1,8 @@
 # SecureLens Checklist
 
 ## Repository setup and environment
-- [ ] Confirm Python 3.11+ and create a virtual environment.
-- [ ] Install requirements and configure `.env` from `.env.example`.
+- [x] Confirm Python 3.11+ and create a virtual environment.
+- [x] Install requirements and configure `.env` from `.env.example`.
 
 ## M1 — Foundation and LLM infrastructure
 - [x] Create project skeleton, dependencies, config, models, prompts, README stub.
@@ -34,6 +34,13 @@
 ## M7 — Evaluation, documentation, and final tests
 - [x] Implement evaluation script with per-sample/aggregate metrics, ground-truth matching, LLM cache/API counters, and unknown outcomes for incomplete samples; complete README and schema docs.
 - [x] Acceptance: 29 unit tests and 18 sample tests pass; offline evaluation generated for four samples; requirements and milestone evidence recorded.
+
+## M8 — Human-in-the-loop review workflow and regression hardening
+- [x] Separate patch generation from application; require explicit user approval before applying patches to an isolated copy.
+- [x] Implement interactive review in Streamlit UI (diff, before, after, explanation, explicit Approve/Reject controls) and CLI `--interactive` mode.
+- [x] Distinguish remediated findings from scanner disappearance in post-patch diffs.
+- [x] Add genuine SQL injection regression test to `sqli_app` (`test_unsafe_lookup_treats_injection_text_as_data`); track remediated tests via `RegressionResult.fixed_tests`.
+- [x] Acceptance: 44 unit tests pass; sample tests demonstrate expected failure on unpatched code and pass on patched copy; duplicate application on rerun prevented.
 
 ## Final review
 - [x] Final security and regression review; patch isolation and conservative failure states documented and checked.

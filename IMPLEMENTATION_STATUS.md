@@ -1,7 +1,7 @@
 # SecureLens Implementation Status
 
 ## Current state
-- Current milestone: M7 — Evaluation and documentation
+- Current milestone: M8 — Human-in-the-loop review workflow & SQLi regression hardening
 - Status: COMPLETE
 - Last updated: 2026-10-26
 - Current branch: main
@@ -20,6 +20,16 @@
 - Evidence: `streamlit run ui/app.py` served on localhost; live browser flow reported the missing offline cache and patch failure as RISKY, retained test and finding results, and produced `.pytest-tmp/securelens-ui.png`.
 - [x] M7: Evaluation runner with per-sample and aggregate metrics, ground-truth alias matching, cache/API counts, unknown metrics for incomplete samples, completed README, and schema reference.
 - Evidence: `eval/run_eval.py` completed all four offline sample pipelines; 29 unit tests and 18 sample tests passed; aggregate reports 4/4 completed, 18/18 original and patched tests passed, and all statuses RISKY due to absent API cache entries.
+- [x] M8: Human-in-the-loop patch review workflow and SQL injection regression test hardening:
+  - Decoupled patch generation (`generate_patches_stage`) from isolated patch application (`apply_patches_stage`).
+  - Added patch status model tracking (`pending`, `approved`, `rejected`) defaulting to pending; unapproved patches are strictly excluded from isolated application.
+  - Redesigned Streamlit UI with dedicated patch inspection (diff, before, after, addressed findings, explanation) and explicit Approve/Reject controls.
+  - Added duplicate application prevention on Streamlit reruns and clean reset handling without modifying the original project.
+  - Distinguish remediated findings from disappeared scan findings in post-patch diff views.
+  - Added `--interactive` terminal patch review mode to CLI `run`.
+  - Implemented missing SQL injection regression test in `samples/sqli_app/tests/test_app.py` (`test_unsafe_lookup_treats_injection_text_as_data`), confirming failure on unpatched code (returns leaked rows) and pass on parameterized code.
+  - Extended `RegressionResult` and `compare_tests()` to track `fixed_tests` (remediated test failures).
+  - Evidence: 44 unit and integration tests passed (`tests/test_human_review.py` and `tests/test_regression_pipeline.py`); sqli_app isolated pipeline completed with 1 test failure remediated to pass; offline evaluation executed cleanly.
 
 ## Final review
 - [x] Security review: offline failures remain unresolved/RISKY; patches use a validated isolated copy; generated reports and local artifacts are ignored.
@@ -38,6 +48,7 @@
 | M5 | PASS | Full unit suite 27 passed; original sample suites 18 passed; offline full pipelines completed for all samples; wow regression test observed new failures | No live API key/cache; triage and patch generation failures were surfaced as RISKY. |
 | M6 | PASS | Streamlit localhost UI flow exercised on `sqli_app`; stages persisted after rerun | Offline cache miss and unavailable patch request correctly surfaced as RISKY; screenshot saved under ignored `.pytest-tmp`. |
 | M7 | PASS | 29 unit tests; 18 sample tests; four offline pipelines; evaluation aggregate 4/4 complete and 18/18 original/patched tests pass | All sample statuses RISKY because the offline cache has no model responses; this is expected and explicit. Live API was not exercised. |
+| M8 | PASS | 44 unit tests; sample suites passing; sqli_app verified with genuine SQL injection regression test (fails on vulnerable code, passes on parameterized code); HITL UI review flow verified | Human-in-the-loop review workflow, approval/rejection state machine, isolated application, and remediated test tracking completed. |
 
 ## Test history
 | Command | Result | Date/time | Notes |
@@ -68,19 +79,23 @@
 | `.\.venv\Scripts\python.exe -m securelens.cli scan samples/cmdi_app` | PASS | 2026-10-25 | Normalized findings emitted by both scanners. |
 | `.\.venv\Scripts\python.exe -m securelens.cli scan samples/secrets_deser_app` | PASS | 2026-10-25 | Normalized findings emitted by both scanners. |
 | `.\.venv\Scripts\python.exe -m securelens.cli scan samples/wow_app` | PASS | 2026-10-25 | Normalized findings emitted by Bandit. |
-
 | `$env:SECURELENS_OFFLINE='1'; .\.venv\Scripts\python.exe eval\run_eval.py` | PASS (four pipelines completed; all RISKY as expected offline) | 2026-10-25 | Escalated local run allowed scanner workers and pytest subprocesses; all sample tests passed and expected-alert matches were 1/2, 1/2, 3/3, and 1/1; aggregate emitted; generated results are ignored run artifacts. |
 | `python -m pytest -q tests --basetemp=.pytest-tmp/m7-accept` | PASS (29 passed) | 2026-10-25 | Final full unit suite, including evaluation matching/aggregate semantics. |
 | `python -m pytest -q samples/<each sample>/tests` | PASS (18 total) | 2026-10-25 | Each sample suite was run separately; combined collection is unsupported because each folder uses the same `test_app.py` module name. |
 | `python -m pytest -q tests --basetemp=.pytest-tmp/live-final2` | PASS (34 passed) | 2026-10-26 | Final suite after switching to the live-verified model; config tests isolate dotenv and never inspect local credentials. |
 | `python -m compileall -q securelens ui tests` and `git diff --check` | PASS | 2026-10-26 | Gemini provider migration syntax and whitespace checks. |
 | SecureLens `LLMClient.complete` live connectivity check | PASS | 2026-10-26 | `gemini-3.5-flash-lite` returned a response validated against a Pydantic schema; one API request. The API key was not displayed or committed. |
+| `.\.venv311\Scripts\python.exe -m pytest -q tests --basetemp=.pytest-tmp` | PASS (44 passed) | 2026-10-26 | Full unit suite including M8 human-in-the-loop review tests (`test_human_review.py`) and fixed test identity tracking (`test_regression_pipeline.py`). |
+| `.\.venv311\Scripts\python.exe -m pytest -q samples/sqli_app/tests` | EXPECTED FAIL (1 failed, 4 passed) | 2026-10-26 | Confirms the new SQL injection test (`test_unsafe_lookup_treats_injection_text_as_data`) genuinely detects the vulnerability on unpatched code. |
+| `.\.venv311\Scripts\python.exe -m securelens.cli run samples/sqli_app --offline` | PASS (SAFE; 1 fixed test) | 2026-10-26 | Full pipeline with cached patch parameterized the function, fixed the finding, and remediated the failing SQLi test (4 passed before, 5 passed after). |
+| `.\.venv311\Scripts\python.exe -m pytest -q workdir\run_sqli_app_de48c3e466\sqli_app_patched\tests` | PASS (5 passed) | 2026-10-26 | Directly executes all 5 tests against the isolated patched copy; all 5 tests pass. |
+| `.\.venv311\Scripts\python.exe -m compileall -q securelens ui tests samples` and `git diff --check` | PASS | 2026-10-26 | Clean compilation with 0 syntax or whitespace errors across all modules and tests. |
 
 ## Known issues and blockers
-- No outstanding Gemini connectivity blocker. `gemini-3.8-flash` returned a deadline timeout in the live check; SecureLens was switched to the live-verified `gemini-3.5-flash-lite` model.
+- None.
 
 ## Next exact action
-1. No remaining implementation work; the verified Flash-Lite model default is committed and pushed.
+1. M8 human-in-the-loop review workflow, SQLi regression hardening, and validation tests are verified and ready for commit.
 
 ## Resume instructions
 Read this file and CHECKLIST.md, inspect the working tree, verify the current milestone's files, rerun relevant checks, and continue from the next incomplete task.
