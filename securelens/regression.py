@@ -53,10 +53,17 @@ def run_tests(project_dir: str | Path, *, timeout: int | None = None) -> TestRes
 
 
 def compare_tests(original: TestResult, patched: TestResult) -> RegressionResult:
-    """Compare test identities and report only failures introduced afterward."""
+    """Compare test identities and report newly failing and remediated tests."""
     before = set(original.failed_tests)
-    newly_failing = sorted(set(patched.failed_tests) - before)
-    return RegressionResult(original=original, patched=patched, newly_failing=newly_failing)
+    after = set(patched.failed_tests)
+    newly_failing = sorted(after - before)
+    fixed_tests = sorted(before - after)
+    return RegressionResult(
+        original=original,
+        patched=patched,
+        newly_failing=newly_failing,
+        fixed_tests=fixed_tests,
+    )
 
 
 def _parse_junit(path: Path, output: str) -> TestResult:

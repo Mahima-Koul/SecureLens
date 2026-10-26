@@ -1,4 +1,4 @@
-"""Streamlit UI for the staged SecureLens assessment pipeline."""
+"""Streamlit UI for the staged SecureLens assessment pipeline with Human-in-the-Loop patch review."""
 
 from __future__ import annotations
 
@@ -13,13 +13,20 @@ from securelens.config import load_settings
 from securelens.context import extract_context
 from securelens.llm import LLMClient
 from securelens.models import PipelineReport
-from securelens.pipeline import diff_stage, fix_stage, regression_stage, scan_stage, triage_stage
+from securelens.pipeline import (
+    apply_patches_stage,
+    diff_stage,
+    generate_patches_stage,
+    regression_stage,
+    scan_stage,
+    triage_stage,
+)
 from securelens.report import finalize_report
 
 
 st.set_page_config(page_title="SecureLens", page_icon="🔎", layout="wide")
 st.title("SecureLens")
-st.caption("Check whether AI-assisted code fixes introduce new security issues or regressions.")
+st.caption("Human-in-the-Loop AI-assisted Python security review with isolated patch validation.")
 
 SAMPLE_ROOT = Path(__file__).resolve().parents[1] / "samples"
 SAMPLE_NAMES = ["sqli_app", "cmdi_app", "secrets_deser_app", "wow_app"]
@@ -47,6 +54,7 @@ triage_key = f"{model_name}|{offline}"
 if st.session_state.get("sl_config_key") not in (None, triage_key):
     st.session_state.pop("sl_triage", None)
     st.session_state.pop("sl_triage_done_key", None)
+    st.session_state.pop("sl_proposed_patches", None)
     st.session_state.pop("sl_fixes", None)
 st.session_state["sl_config_key"] = triage_key
 
@@ -68,14 +76,26 @@ def _current_report() -> PipelineReport:
     """Build a report from the completed UI stages and determine its status."""
     scan = _get_state("scan", {})
     triage = _get_state("triage", {})
+    proposed = _get_state("proposed_patches", {})
     fixes = _get_state("fixes", {})
+    patches = fixes.get("patches", proposed.get("patches", []))
     report = PipelineReport(
-        project=str(project), patched_project=fixes.get("patched_project"),
-        findings=scan.get("findings", []), verdicts=triage.get("verdicts", []),
-        confirmed=triage.get("confirmed", []), dismissed=triage.get("dismissed", []),
-        unresolved=triage.get("unresolved", []), patches=fixes.get("patches", []),
-        diff=fixes.get("diff"), regression=fixes.get("regression"),
-        errors=(scan.get("errors", []) + triage.get("errors", []) + fixes.get("errors", [])),
+        project=str(project),
+        patched_project=fixes.get("patched_project"),
+        findings=scan.get("findings", []),
+        verdicts=triage.get("verdicts", []),
+        confirmed=triage.get("confirmed", []),
+        dismissed=triage.get("dismissed", []),
+        unresolved=triage.get("unresolved", []),
+        patches=patches,
+        diff=fixes.get("diff"),
+        regression=fixes.get("regression"),
+        errors=(
+            scan.get("errors", [])
+            + triage.get("errors", [])
+            + proposed.get("errors", [])
+            + fixes.get("errors", [])
+        ),
         timings={},
     )
     return finalize_report(report)
@@ -160,60 +180,201 @@ if scan_state is not None:
                     except Exception as exc:
                         st.error(f"Context unavailable ({type(exc).__name__}): {exc}")
 
+    # Human-in-the-Loop Patch Review Workflow
+    st.subheader("3. Proposed patches (Human Review)")
+    proposed_state = _get_state("proposed_patches", None)
     fixes_state = _get_state("fixes", None)
-    st.subheader("3. Generate fixes")
-    if st.button("Generate fixes and run comparisons", disabled=fixes_state is not None):
-        try:
-            with st.spinner("Generating patches, rescanning, and running regression tests…"):
-                patches, patched_dir, fix_errors = fix_stage(
-                    project, triage_state.get("confirmed", []), llm_client=llm_client,
-                    workdir=Path.cwd() / "workdir" / f"ui_{uuid.uuid4().hex[:10]}",
-                )
-                diff = None
-                regression = None
-                stage_errors = list(fix_errors)
-                if patched_dir is not None:
-                    diff, diff_errors = diff_stage(scan_state.get("findings", []), patched_dir,
-                                                   original_project=project)
-                    stage_errors.extend(diff_errors)
-                    regression, regression_errors = regression_stage(
-                        project, patched_dir, baseline=scan_state.get("baseline"),
+
+    if proposed_state is None:
+        confirmed_findings = triage_state.get("confirmed", [])
+        can_generate = len(confirmed_findings) > 0
+        if not can_generate:
+            st.info("No confirmed vulnerabilities requiring patches.")
+        if st.button("Generate proposed patches", disabled=not can_generate, type="primary"):
+            try:
+                with st.spinner("Generating proposed patches with Gemini (without modifying original source)…"):
+                    patches, gen_errors = generate_patches_stage(
+                        project, confirmed_findings, llm_client=llm_client,
                     )
-                    stage_errors.extend(regression_errors)
-                _store("fixes", {"patches": patches, "patched_project": str(patched_dir) if patched_dir else None,
-                                  "diff": diff, "regression": regression, "errors": stage_errors})
-        except Exception as exc:
-            st.error(f"Fix stage failed ({type(exc).__name__}): {exc}")
+                    # All proposed patches initially require explicit human approval (pending status)
+                    for patch in patches:
+                        patch.status = "pending"
+                    _store("proposed_patches", {"patches": patches, "errors": gen_errors})
+                    st.rerun()
+            except Exception as exc:
+                st.error(f"Patch generation failed ({type(exc).__name__}): {exc}")
+
+    proposed_state = _get_state("proposed_patches", None)
+    if proposed_state is not None:
+        patches = proposed_state.get("patches", [])
+        gen_errors = proposed_state.get("errors", [])
+        for err in gen_errors:
+            st.error(err)
+
+        if not patches:
+            st.info("No patches were generated for the confirmed findings.")
+        else:
+            pending_count = sum(1 for p in patches if p.status == "pending")
+            approved_count = sum(1 for p in patches if p.status == "approved")
+            rejected_count = sum(1 for p in patches if p.status == "rejected")
+
+            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+            col_m1.metric("Proposed patches", len(patches))
+            col_m2.metric("⏳ Pending review", pending_count)
+            col_m3.metric("✅ Approved", approved_count)
+            col_m4.metric("❌ Rejected", rejected_count)
+
+            # Quick bulk controls when review is still open
+            if fixes_state is None and len(patches) > 1:
+                b_col1, b_col2, _ = st.columns([1, 1, 2])
+                if b_col1.button("Approve all patches"):
+                    for p in patches:
+                        p.status = "approved"
+                    _store("proposed_patches", proposed_state)
+                    st.rerun()
+                if b_col2.button("Reject all patches"):
+                    for p in patches:
+                        p.status = "rejected"
+                    _store("proposed_patches", proposed_state)
+                    st.rerun()
+
+            findings_by_id = {f.id: f for f in scan_state.get("findings", [])}
+            for idx, patch in enumerate(patches):
+                status_icon = "⏳" if patch.status == "pending" else ("✅" if patch.status == "approved" else "❌")
+                status_label = patch.status.upper()
+                expander_title = f"{status_icon} [{status_label}] {patch.file}: {patch.explanation}"
+
+                with st.expander(expander_title, expanded=(fixes_state is None and patch.status == "pending")):
+                    st.markdown(f"**Target file:** `{patch.file}`")
+                    st.markdown(f"**Review status:** `{status_label}`")
+                    st.markdown(f"**Explanation:** {patch.explanation}")
+
+                    st.markdown("**Addressed security findings:**")
+                    addressed = [findings_by_id[fid] for fid in patch.addressed_finding_ids if fid in findings_by_id]
+                    if addressed:
+                        for item in addressed:
+                            st.write(f"- Line {item.line} [{item.severity}] ({item.rule_id}): {item.message}")
+                    else:
+                        st.caption("None or unresolved finding IDs.")
+
+                    diff_tab, before_tab, after_tab = st.tabs(["Unified Diff", "Original (Before)", "Proposed (After)"])
+                    with diff_tab:
+                        st.code(patch.diff or "(No source differences generated)", language="diff")
+                    with before_tab:
+                        st.code(patch.original_code, language="python")
+                    with after_tab:
+                        st.code(patch.patched_code, language="python")
+
+                    if fixes_state is None:
+                        st.markdown("**Review Decision:**")
+                        c_app, c_rej, c_pen = st.columns(3)
+                        if c_app.button("✅ Approve", key=f"btn_app_{idx}_{patch.file}", disabled=(patch.status == "approved")):
+                            patch.status = "approved"
+                            _store("proposed_patches", proposed_state)
+                            st.rerun()
+                        if c_rej.button("❌ Reject", key=f"btn_rej_{idx}_{patch.file}", disabled=(patch.status == "rejected")):
+                            patch.status = "rejected"
+                            _store("proposed_patches", proposed_state)
+                            st.rerun()
+                        if c_pen.button("⏳ Mark Pending", key=f"btn_pen_{idx}_{patch.file}", disabled=(patch.status == "pending")):
+                            patch.status = "pending"
+                            _store("proposed_patches", proposed_state)
+                            st.rerun()
+                    else:
+                        st.caption(f"Review status is locked as **{status_label}** during validation.")
+
+            st.subheader("4. Apply approved patches & validate")
+            approved_patches = [p for p in patches if p.status == "approved"]
+
+            if fixes_state is None:
+                if not approved_patches:
+                    st.warning("⚠️ No patches have been approved yet. Inspect each proposed patch above and click **Approve** before applying.")
+                    st.button("Apply approved patches and validate", disabled=True)
+                else:
+                    st.info(f"Ready to apply **{len(approved_patches)} approved patch(es)** (out of {len(patches)} total) to an isolated copy. The original project will remain untouched.")
+                    if st.button("Apply approved patches and validate", type="primary"):
+                        try:
+                            with st.spinner("Applying only approved patches to isolated working copy, rescanning, and running regression tests…"):
+                                run_workdir = Path.cwd() / "workdir" / f"ui_{uuid.uuid4().hex[:10]}"
+                                patched_dir, apply_errors = apply_patches_stage(
+                                    project, approved_patches, workdir=run_workdir, require_approval=True,
+                                )
+                                diff = None
+                                regression = None
+                                stage_errors = list(apply_errors)
+                                if patched_dir is not None:
+                                    diff, diff_errors = diff_stage(
+                                        scan_state.get("findings", []), patched_dir, original_project=project,
+                                    )
+                                    stage_errors.extend(diff_errors)
+                                    regression, regression_errors = regression_stage(
+                                        project, patched_dir, baseline=scan_state.get("baseline"),
+                                    )
+                                    stage_errors.extend(regression_errors)
+                                _store("fixes", {
+                                    "patches": patches,
+                                    "applied_patches": approved_patches,
+                                    "patched_project": str(patched_dir) if patched_dir else None,
+                                    "diff": diff,
+                                    "regression": regression,
+                                    "errors": stage_errors,
+                                })
+                                st.rerun()
+                        except Exception as exc:
+                            st.error(f"Patch application failed ({type(exc).__name__}): {exc}")
+            else:
+                st.caption(f"Validation completed in isolated copy: `{fixes_state.get('patched_project')}`")
+                applied_count = len(fixes_state.get("applied_patches", []))
+                st.write(f"Applied **{applied_count} approved patch(es)**.")
+                if st.button("Reset patch review & re-evaluate"):
+                    st.session_state.pop("sl_fixes", None)
+                    st.session_state.pop("sl_proposed_patches", None)
+                    st.rerun()
 
     fixes_state = _get_state("fixes", None)
     if fixes_state is not None:
-        if fixes_state.get("patched_project"):
-            st.caption(f"Patched copy: `{fixes_state['patched_project']}`")
-        for patch in fixes_state.get("patches", []):
-            with st.expander(f"{patch.file}: {patch.explanation}"):
-                st.code(patch.diff or "No source changes generated.", language="diff")
-        st.subheader("4. Before/after findings")
+        st.subheader("5. Before/after findings")
         diff = fixes_state.get("diff")
         if diff:
+            applied = fixes_state.get("applied_patches", [])
+            addressed_ids = {fid for p in applied for fid in p.addressed_finding_ids}
+
             fixed_tab, remaining_tab, new_tab = st.tabs([
                 f"Fixed ({len(diff.fixed)})", f"Remaining ({len(diff.remaining)})", f"NEW ({len(diff.new)})",
             ])
-            for tab, title, group in ((fixed_tab, "Fixed", diff.fixed),
-                                      (remaining_tab, "Remaining", diff.remaining),
-                                      (new_tab, "NEW", diff.new)):
-                with tab:
-                    if not group:
-                        st.caption(f"No {title.lower()} findings.")
-                    for finding in group:
-                        message = f"{finding.file}:{finding.line} — {finding.rule_id}: {finding.message}"
-                        if title == "NEW":
-                            st.error(message)
+            with fixed_tab:
+                if not diff.fixed:
+                    st.caption("No fixed findings.")
+                else:
+                    st.caption("Findings are distinguished between directly addressed remediations and findings that disappeared without a targeted patch:")
+                    for finding in diff.fixed:
+                        if finding.id in addressed_ids:
+                            st.success(f"✅ **[Remediated by patch]** {finding.file}:{finding.line} — {finding.rule_id}: {finding.message}")
                         else:
-                            st.write(message)
+                            st.info(f"🔍 **[Disappeared from scan]** {finding.file}:{finding.line} — {finding.rule_id}: {finding.message} *(disappeared from scanner output; not directly targeted)*")
+
+            with remaining_tab:
+                if not diff.remaining:
+                    st.caption("No remaining findings.")
+                else:
+                    for finding in diff.remaining:
+                        unapproved_patches = [
+                            p for p in fixes_state.get("patches", [])
+                            if p.status != "approved" and finding.id in p.addressed_finding_ids
+                        ]
+                        note = f" (Patch was {unapproved_patches[0].status.upper()})" if unapproved_patches else ""
+                        st.warning(f"⚠️ {finding.file}:{finding.line} — {finding.rule_id}: {finding.message}{note}")
+
+            with new_tab:
+                if not diff.new:
+                    st.caption("No new findings.")
+                else:
+                    for finding in diff.new:
+                        st.error(f"🚨 **[NEW finding introduced]** {finding.file}:{finding.line} — {finding.rule_id}: {finding.message}")
         else:
             st.warning("Patched rescan did not produce a complete comparison.")
 
-        st.subheader("5. Regression tests")
+        st.subheader("6. Regression tests")
         regression = fixes_state.get("regression")
         if regression:
             left, right = st.columns(2)
@@ -221,6 +382,8 @@ if scan_state is not None:
             right.metric("Patched tests passed", regression.patched.passed)
             st.write(f"Failed before/after: {regression.original.failed}/{regression.patched.failed}; "
                      f"errors before/after: {regression.original.errors}/{regression.patched.errors}")
+            if getattr(regression, "fixed_tests", None):
+                st.success("✅ **Remediated test failures (verified fixed by patch):** " + ", ".join(regression.fixed_tests))
             if regression.newly_failing:
                 st.error("Newly failing tests: " + ", ".join(regression.newly_failing))
             else:
@@ -228,7 +391,7 @@ if scan_state is not None:
         else:
             st.warning("Patched regression tests did not complete.")
 
-        st.subheader("6. Final assessment")
+        st.subheader("7. Final assessment")
         report = _current_report()
         if report.final_status == "SAFE":
             st.success("SAFE — " + " ".join(report.status_reasons))

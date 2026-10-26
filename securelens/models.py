@@ -40,6 +40,7 @@ class Patch(BaseModel):
     diff: str
     explanation: str
     addressed_finding_ids: list[str]
+    status: Literal["pending", "approved", "rejected"] = "pending"
 
 
 class DiffResult(BaseModel):
@@ -52,6 +53,8 @@ class DiffResult(BaseModel):
 
 class TestResult(BaseModel):
     """Pytest result summary."""
+
+    __test__ = False
 
     passed: int = 0
     failed: int = 0
@@ -66,6 +69,7 @@ class RegressionResult(BaseModel):
     original: TestResult
     patched: TestResult
     newly_failing: list[str] = Field(default_factory=list)
+    fixed_tests: list[str] = Field(default_factory=list)
 
 
 class PipelineReport(BaseModel):

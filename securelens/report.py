@@ -48,6 +48,8 @@ def render_summary(report: PipelineReport) -> str:
         lines.append(f"Tests: {report.regression.original.passed} passed before, "
                      f"{report.regression.patched.passed} passed after, "
                      f"{len(report.regression.newly_failing)} newly failing")
+        if getattr(report.regression, "fixed_tests", None):
+            lines.append(f"Remediated tests: {len(report.regression.fixed_tests)} fixed ({', '.join(report.regression.fixed_tests)})")
     lines.extend(f"Reason: {reason}" for reason in report.status_reasons)
     lines.extend(f"Error: {error}" for error in report.errors)
     return "\n".join(lines)

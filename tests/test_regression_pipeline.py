@@ -19,6 +19,17 @@ def test_test_identity_comparison_ignores_preexisting_failures():
     result = compare_tests(original, patched)
 
     assert result.newly_failing == ["test_app::test_new_failure"]
+    assert result.fixed_tests == []
+
+
+def test_compare_tests_identifies_fixed_and_newly_failing_tests():
+    original = SecureTestResult(failed=1, failed_tests=["test_app::test_sqli_remediated"])
+    patched = SecureTestResult(failed=1, failed_tests=["test_app::test_unrelated_broken"])
+
+    result = compare_tests(original, patched)
+
+    assert result.fixed_tests == ["test_app::test_sqli_remediated"]
+    assert result.newly_failing == ["test_app::test_unrelated_broken"]
 
 
 def test_run_tests_parses_junit_and_records_new_failures(tmp_path, monkeypatch):

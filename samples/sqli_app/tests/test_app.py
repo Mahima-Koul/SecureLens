@@ -10,6 +10,11 @@ def test_unsafe_lookup_returns_matching_user():
     assert find_user_unsafe("alice") == [("alice", "user")]
 
 
+def test_unsafe_lookup_treats_injection_text_as_data():
+    """Verify that find_user_unsafe treats malicious SQL injection input as literal data."""
+    assert find_user_unsafe("' OR 1=1 --") == []
+
+
 def test_safe_lookup_returns_matching_user():
     assert find_user_safe("alice") == [("alice", "user")]
 
