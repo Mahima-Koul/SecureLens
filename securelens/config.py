@@ -34,7 +34,7 @@ def load_settings(*, offline: bool | None = None) -> Settings:
     env_offline = os.getenv("SECURELENS_OFFLINE", "0").strip().lower() in {"1", "true", "yes"}
     return Settings(
         gemini_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or None,
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash",
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite",
         offline=env_offline if offline is None else offline,
         triage_threshold=threshold,
         semgrep_config=os.getenv("SECURELENS_SEMGREP_CONFIG") or None,

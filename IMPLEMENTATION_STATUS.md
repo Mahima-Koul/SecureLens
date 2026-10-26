@@ -72,14 +72,15 @@
 | `$env:SECURELENS_OFFLINE='1'; .\.venv\Scripts\python.exe eval\run_eval.py` | PASS (four pipelines completed; all RISKY as expected offline) | 2026-10-25 | Escalated local run allowed scanner workers and pytest subprocesses; all sample tests passed and expected-alert matches were 1/2, 1/2, 3/3, and 1/1; aggregate emitted; generated results are ignored run artifacts. |
 | `python -m pytest -q tests --basetemp=.pytest-tmp/m7-accept` | PASS (29 passed) | 2026-10-25 | Final full unit suite, including evaluation matching/aggregate semantics. |
 | `python -m pytest -q samples/<each sample>/tests` | PASS (18 total) | 2026-10-25 | Each sample suite was run separately; combined collection is unsupported because each folder uses the same `test_app.py` module name. |
-| `python -m pytest -q tests --basetemp=.pytest-tmp/gemini-final` | PASS (33 passed) | 2026-10-26 | Final suite after migration to Google's `google-genai` SDK; client construction, Gemini request shape, environment settings, cache behavior, and offline behavior are mocked/tested. |
+| `python -m pytest -q tests --basetemp=.pytest-tmp/live-final2` | PASS (34 passed) | 2026-10-26 | Final suite after switching to the live-verified model; config tests isolate dotenv and never inspect local credentials. |
 | `python -m compileall -q securelens ui tests` and `git diff --check` | PASS | 2026-10-26 | Gemini provider migration syntax and whitespace checks. |
+| SecureLens `LLMClient.complete` live connectivity check | PASS | 2026-10-26 | `gemini-3.5-flash-lite` returned a response validated against a Pydantic schema; one API request. The API key was not displayed or committed. |
 
 ## Known issues and blockers
-- Live Gemini calls were not exercised because no Gemini API key is configured; deterministic mocked acceptance passed and offline cache misses remain explicit.
+- No outstanding Gemini connectivity blocker. `gemini-3.8-flash` returned a deadline timeout in the live check; SecureLens was switched to the live-verified `gemini-3.5-flash-lite` model.
 
 ## Next exact action
-1. No remaining implementation work; the Gemini provider migration is committed and pushed.
+1. No remaining implementation work; the verified Flash-Lite model default is committed and pushed.
 
 ## Resume instructions
 Read this file and CHECKLIST.md, inspect the working tree, verify the current milestone's files, rerun relevant checks, and continue from the next incomplete task.

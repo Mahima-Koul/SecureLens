@@ -32,7 +32,7 @@ Optional settings:
 | Variable | Default | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | unset | Credentials for Gemini API calls |
-| `GEMINI_MODEL` | `gemini-3.8-flash` | Model used for structured triage and patch responses |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Model used for structured triage and patch responses |
 | `SECURELENS_OFFLINE` | `0` | `1` restricts LLM use to validated cache entries |
 | `SECURELENS_CACHE_DIR` | `.cache/llm` | Local response cache (contains code-derived prompts; keep private) |
 | `SECURELENS_TRIAGE_THRESHOLD` | `0.7` | Confidence below which a negative verdict stays confirmed |
