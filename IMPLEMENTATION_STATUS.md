@@ -79,7 +79,7 @@
 - Live Gemini calls were not exercised because no Gemini API key is configured; deterministic mocked acceptance passed and offline cache misses remain explicit.
 
 ## Next exact action
-1. Commit and push the Gemini provider migration; no further implementation changes are intended.
+1. No remaining implementation work; the Gemini provider migration is committed and pushed.
 
 ## Resume instructions
 Read this file and CHECKLIST.md, inspect the working tree, verify the current milestone's files, rerun relevant checks, and continue from the next incomplete task.
