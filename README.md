@@ -1,6 +1,6 @@
 # SecureLens
 
-SecureLens is a student demonstration of AI-assisted Python security review. It combines Semgrep and Bandit findings, sends structured code context to OpenAI for conservative triage, proposes complete-file patches in an isolated copy, rescans that copy, and compares its pytest results with the original.
+SecureLens is a student demonstration of AI-assisted Python security review. It combines Semgrep and Bandit findings, sends structured code context to Gemini for conservative triage, proposes complete-file patches in an isolated copy, rescans that copy, and compares its pytest results with the original.
 
 The final status is **SAFE**, **RISKY**, or **INCOMPLETE**. A missing API response is kept visible as unresolved and cannot silently turn into a clean result. SecureLens is an educational aid, not a substitute for a security review.
 
@@ -8,8 +8,8 @@ The final status is **SAFE**, **RISKY**, or **INCOMPLETE**. A missing API respon
 
 - Python 3.11 or newer
 - Git
-- Internet access for dependency installation, scanner rule downloads, and live OpenAI requests
-- An OpenAI API key for uncached triage and patch generation (optional for offline mode)
+- Internet access for dependency installation, scanner rule downloads, and live Gemini requests
+- A Gemini API key for uncached triage and patch generation (optional for offline mode)
 
 ## Install (Windows PowerShell)
 
@@ -23,14 +23,16 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Edit `.env` and set `OPENAI_API_KEY` for live model calls. Never commit `.env`. Linux/macOS users can substitute `python3 -m venv .venv`, `source .venv/bin/activate`, and `cp .env.example .env`.
+Edit `.env` and set `GEMINI_API_KEY` for live model calls (`GOOGLE_API_KEY` is also accepted as a fallback). Never commit `.env`. Linux/macOS users can substitute `python3 -m venv .venv`, `source .venv/bin/activate`, and `cp .env.example .env`.
+
+SecureLens uses Google's recommended [`google-genai` Python SDK](https://ai.google.dev/gemini-api/docs/libraries) and Gemini's [structured output API](https://ai.google.dev/gemini-api/docs/structured-output). Create a key in [Google AI Studio](https://ai.google.dev/gemini-api/docs/api-key).
 
 Optional settings:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | unset | Credentials for OpenAI Responses API calls |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | Model used for structured triage and patch responses |
+| `GEMINI_API_KEY` | unset | Credentials for Gemini API calls |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Model used for structured triage and patch responses |
 | `SECURELENS_OFFLINE` | `0` | `1` restricts LLM use to validated cache entries |
 | `SECURELENS_CACHE_DIR` | `.cache/llm` | Local response cache (contains code-derived prompts; keep private) |
 | `SECURELENS_TRIAGE_THRESHOLD` | `0.7` | Confidence below which a negative verdict stays confirmed |
@@ -93,7 +95,7 @@ Python project
      +--> Semgrep + Bandit --> normalized findings --> AST context
                                                    |
                                                    v
-                                         OpenAI structured triage
+                                         Gemini structured triage
                                                    |
                                                    v
                           confirmed findings --> proposed full-file patches
@@ -110,8 +112,8 @@ The CLI and UI use the same pipeline. Pydantic models validate model output and 
 
 ## Troubleshooting
 
-- **Missing `OPENAI_API_KEY` / authentication error:** set the key in `.env` or the process environment and confirm the selected model is enabled for the account.
-- **Model unavailable:** check `OPENAI_MODEL` and account access. SecureLens reports the failed stage and preserves partial results.
+- **Missing `GEMINI_API_KEY` / authentication error:** set the key in `.env` or the process environment and confirm the selected model is enabled for the account.
+- **Model unavailable:** check `GEMINI_MODEL` and account access. SecureLens reports the failed stage and preserves partial results.
 - **Semgrep cannot download rules:** allow network access or set `SECURELENS_SEMGREP_CONFIG` to an available local/configured ruleset. Scanner diagnostics are included in the report.
 - **Timeout:** increase `SECURELENS_TOOL_TIMEOUT`; long test suites and first-time scanner setup may take longer.
 - **Offline cache miss:** run once online with the same model and input to populate the cache, or expect the finding to remain unresolved/RISKY. Cache entries are specific to the full request.

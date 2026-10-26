@@ -6,7 +6,7 @@
 
 ## M1 — Foundation and LLM infrastructure
 - [x] Create project skeleton, dependencies, config, models, prompts, README stub.
-- [x] Implement OpenAI Responses API client, validated disk cache, offline mode.
+- [x] Implement Gemini structured-output client, validated disk cache, offline mode.
 - [x] Acceptance: repeated operation uses cache; offline hit and miss tested (3 passed).
 - [x] Run `python -m pytest -q tests/test_llm.py --basetemp=.pytest-tmp` (3 passed).
 

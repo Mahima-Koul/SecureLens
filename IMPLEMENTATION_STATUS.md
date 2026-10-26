@@ -3,13 +3,13 @@
 ## Current state
 - Current milestone: M7 — Evaluation and documentation
 - Status: COMPLETE
-- Last updated: 2026-10-25
+- Last updated: 2026-10-26
 - Current branch: main
 - Last known good commit, if available: 0e9330f (M7)
 
 ## Completed work
 - [x] Repository inspected; clean initial working tree confirmed.
-- [x] M1: configuration, core data models, named prompts, OpenAI Responses client, atomic validated cache, and offline handling.
+- [x] M1: configuration, core data models, named prompts, structured LLM client, atomic validated cache, and offline handling (provider migrated from OpenAI to Gemini after acceptance).
 - Evidence: `python -m pytest -q tests/test_llm.py --basetemp=.pytest-tmp` — 3 passed (mocked API; cache hit/miss and offline behavior).
 - [x] M2: Semgrep/Bandit scanner, safe normalization, AST context extraction, scan CLI, and four sample apps with tests and ground truth.
 - Evidence: 9 unit tests, 18 original sample tests, and scan CLI output for all four samples.
@@ -31,13 +31,13 @@
 ## Milestone results
 | Milestone | Status | Acceptance checks | Notes |
 |-----------|--------|------------------|-------|
-| M1 | PASS | `python -m pytest -q tests/test_llm.py --basetemp=.pytest-tmp` — 3 passed | OpenAI SDK is installed in `.venv`; live API not exercised because no API key is configured. |
+| M1 | PASS | `python -m pytest -q tests/test_llm.py --basetemp=.pytest-tmp` — 3 passed before provider migration; final Gemini client tests rerun below | Live Gemini API not exercised because no Gemini API key is configured. |
 | M2 | PASS | Unit suite: 9 passed; original samples: 18 passed; CLI scans completed for all four samples | Scanner runs used project `.venv`; the sandbox blocked Semgrep socket creation, so actual scans ran with required escalation. |
-| M3 | PASS | Deterministic mocked SQLi/parameterized query and failure tests — 4 passed | Live OpenAI call not performed; no API key configured. |
+| M3 | PASS | Deterministic mocked SQLi/parameterized query and failure tests — 4 passed | Live Gemini call not performed; no API key configured. |
 | M4 | PASS | Fingerprint/diff and safe patch-copy tests — 6 passed; full unit suite — 19 passed | Confirms source remains unchanged, copy is patched, duplicate matches and path traversal are handled. |
 | M5 | PASS | Full unit suite 27 passed; original sample suites 18 passed; offline full pipelines completed for all samples; wow regression test observed new failures | No live API key/cache; triage and patch generation failures were surfaced as RISKY. |
 | M6 | PASS | Streamlit localhost UI flow exercised on `sqli_app`; stages persisted after rerun | Offline cache miss and unavailable patch request correctly surfaced as RISKY; screenshot saved under ignored `.pytest-tmp`. |
-| M7 | PASS | 29 unit tests; 18 sample tests; four offline pipelines; evaluation aggregate 4/4 complete and 18/18 original/patched tests pass | All sample statuses RISKY because the offline cache has no model responses; this is expected and explicit. Live OpenAI API was not exercised. |
+| M7 | PASS | 29 unit tests; 18 sample tests; four offline pipelines; evaluation aggregate 4/4 complete and 18/18 original/patched tests pass | All sample statuses RISKY because the offline cache has no model responses; this is expected and explicit. Live API was not exercised. |
 
 ## Test history
 | Command | Result | Date/time | Notes |
@@ -72,12 +72,14 @@
 | `$env:SECURELENS_OFFLINE='1'; .\.venv\Scripts\python.exe eval\run_eval.py` | PASS (four pipelines completed; all RISKY as expected offline) | 2026-10-25 | Escalated local run allowed scanner workers and pytest subprocesses; all sample tests passed and expected-alert matches were 1/2, 1/2, 3/3, and 1/1; aggregate emitted; generated results are ignored run artifacts. |
 | `python -m pytest -q tests --basetemp=.pytest-tmp/m7-accept` | PASS (29 passed) | 2026-10-25 | Final full unit suite, including evaluation matching/aggregate semantics. |
 | `python -m pytest -q samples/<each sample>/tests` | PASS (18 total) | 2026-10-25 | Each sample suite was run separately; combined collection is unsupported because each folder uses the same `test_app.py` module name. |
+| `python -m pytest -q tests --basetemp=.pytest-tmp/gemini-final` | PASS (33 passed) | 2026-10-26 | Final suite after migration to Google's `google-genai` SDK; client construction, Gemini request shape, environment settings, cache behavior, and offline behavior are mocked/tested. |
+| `python -m compileall -q securelens ui tests` and `git diff --check` | PASS | 2026-10-26 | Gemini provider migration syntax and whitespace checks. |
 
 ## Known issues and blockers
-- Live OpenAI calls were not exercised because no API key is configured; deterministic mocked acceptance passed and offline cache misses remain explicit.
+- Live Gemini calls were not exercised because no Gemini API key is configured; deterministic mocked acceptance passed and offline cache misses remain explicit.
 
 ## Next exact action
-1. No remaining implementation work; all milestones are committed and pushed.
+1. Commit and push the Gemini provider migration; no further implementation changes are intended.
 
 ## Resume instructions
 Read this file and CHECKLIST.md, inspect the working tree, verify the current milestone's files, rerun relevant checks, and continue from the next incomplete task.

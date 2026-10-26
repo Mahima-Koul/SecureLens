@@ -30,7 +30,7 @@ with st.sidebar:
     selection = st.selectbox("Sample project", [*SAMPLE_NAMES, "Custom folder"])
     custom_path = st.text_input("Local project folder", value=str(SAMPLE_ROOT / SAMPLE_NAMES[0]))
     project = (SAMPLE_ROOT / selection) if selection != "Custom folder" else Path(custom_path).expanduser()
-    model_name = st.text_input("OpenAI model", value=settings.openai_model)
+    model_name = st.text_input("Gemini model", value=settings.gemini_model)
     offline = st.checkbox("Offline mode (cache only)", value=settings.offline)
     st.caption(f"Configured model: `{model_name}`")
     st.caption("Offline mode never sends an API request; cache misses are reported.")
@@ -50,7 +50,7 @@ if st.session_state.get("sl_config_key") not in (None, triage_key):
     st.session_state.pop("sl_fixes", None)
 st.session_state["sl_config_key"] = triage_key
 
-client_settings = replace(load_settings(offline=offline), openai_model=model_name)
+client_settings = replace(load_settings(offline=offline), gemini_model=model_name)
 llm_client = LLMClient(client_settings)
 
 

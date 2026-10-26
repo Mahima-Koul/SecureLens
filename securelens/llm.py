@@ -1,4 +1,4 @@
-"""OpenAI Responses API access with validated, atomic disk caching."""
+"""Gemini API access with validated, atomic disk caching."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class CacheStats:
 
 
 class LLMClient:
-    """Call OpenAI with structured output, validated cache, and offline support."""
+    """Call Gemini with structured output, validated cache, and offline support."""
 
     def __init__(self, settings: Settings | None = None, *, client: Any = None) -> None:
         self.settings = settings or load_settings()
@@ -43,7 +43,7 @@ class LLMClient:
         """Return a validated response, using a matching cache entry when available."""
         schema = response_model.model_json_schema()
         material = json.dumps({
-            "version": CACHE_VERSION, "model": self.settings.openai_model,
+            "version": CACHE_VERSION, "model": self.settings.gemini_model,
             "operation": operation, "system": system_prompt, "input": user_input, "schema": schema,
         }, sort_keys=True, ensure_ascii=False)
         key = hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -61,35 +61,34 @@ class LLMClient:
         if self.settings.offline:
             raise LLMError(f"Offline mode: no valid cached {operation} response. Run online once to populate {cache_path}.")
         if self.client is None:
-            if not self.settings.openai_api_key:
-                raise LLMError("OPENAI_API_KEY is required for live calls. Set it in your environment or .env file.")
+            if not self.settings.gemini_api_key:
+                raise LLMError("GEMINI_API_KEY is required for live calls. Set it in your environment or .env file.")
             try:
-                from openai import OpenAI
-                self.client = OpenAI(api_key=self.settings.openai_api_key, timeout=self.settings.tool_timeout)
+                from google import genai
+                self.client = genai.Client(
+                    api_key=self.settings.gemini_api_key,
+                    http_options={"timeout": self.settings.tool_timeout * 1000},
+                )
             except Exception as exc:
-                raise LLMError(f"Could not initialize the OpenAI client: {type(exc).__name__}.") from exc
+                raise LLMError(f"Could not initialize the Gemini client: {type(exc).__name__}.") from exc
 
         errors: list[str] = []
         for attempt in range(2):
             self.stats.api_calls += 1
             try:
-                response = self.client.responses.create(
-                    model=self.settings.openai_model,
-                    input=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_input},
-                    ],
-                    text={"format": {
-                        "type": "json_schema", "name": response_model.__name__.lower(),
-                        "strict": True, "schema": schema,
-                    }},
-                    temperature=0,
+                response = self.client.interactions.create(
+                    model=self.settings.gemini_model,
+                    system_instruction=system_prompt,
+                    input=user_input,
+                    response_format={
+                        "type": "text", "mime_type": "application/json", "schema": schema,
+                    },
                     timeout=self.settings.tool_timeout,
                 )
                 if getattr(response, "status", None) == "incomplete":
-                    raise LLMError("OpenAI returned an incomplete response.")
+                    raise LLMError("Gemini returned an incomplete response.")
                 if self._has_refusal(response):
-                    raise LLMError("OpenAI refused the request; no response was cached.")
+                    raise LLMError("Gemini refused the request; no response was cached.")
                 result = response_model.model_validate_json(response.output_text)
                 self._write_cache(cache_path, key, result.model_dump(mode="json"))
                 return result
@@ -100,20 +99,24 @@ class LLMClient:
             except Exception as exc:
                 # Do not include provider exception text: it can contain request details.
                 name = type(exc).__name__
-                errors.append(f"OpenAI request failed ({name}).")
-                if name in {"AuthenticationError", "PermissionDeniedError"}:
-                    raise LLMError("OpenAI authentication or permission failed. Check the API key and model access.") from exc
+                errors.append(f"Gemini request failed ({name}).")
+                if getattr(exc, "code", None) in {401, 403}:
+                    raise LLMError("Gemini authentication or permission failed. Check the API key and model access.") from exc
                 if attempt == 1:
                     raise LLMError(errors[-1]) from exc
-        raise LLMError("Could not validate OpenAI response after one retry: " + "; ".join(errors))
+        raise LLMError("Could not validate Gemini response after one retry: " + "; ".join(errors))
 
     @staticmethod
     def _has_refusal(response: Any) -> bool:
-        """Detect refusal blocks in Responses API output items."""
-        for item in getattr(response, "output", []) or []:
+        """Detect provider refusal blocks in response output items or steps."""
+        items = list(getattr(response, "output", []) or [])
+        items.extend(getattr(response, "steps", []) or [])
+        for item in items:
             for content in getattr(item, "content", []) or []:
                 if getattr(content, "type", None) == "refusal":
                     return True
+            if getattr(item, "type", None) == "refusal":
+                return True
         return False
 
     @staticmethod

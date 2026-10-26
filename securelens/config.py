@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 class Settings:
     """Runtime settings loaded from environment variables and `.env`."""
 
-    openai_api_key: str | None
-    openai_model: str
+    gemini_api_key: str | None
+    gemini_model: str
     offline: bool
     triage_threshold: float
     semgrep_config: str | None
@@ -33,8 +33,8 @@ def load_settings(*, offline: bool | None = None) -> Settings:
         raise ValueError("SECURELENS_TOOL_TIMEOUT must be a positive number")
     env_offline = os.getenv("SECURELENS_OFFLINE", "0").strip().lower() in {"1", "true", "yes"}
     return Settings(
-        openai_api_key=os.getenv("OPENAI_API_KEY") or None,
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",
+        gemini_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or None,
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash",
         offline=env_offline if offline is None else offline,
         triage_threshold=threshold,
         semgrep_config=os.getenv("SECURELENS_SEMGREP_CONFIG") or None,
