@@ -1,11 +1,11 @@
 # SecureLens Implementation Status
 
 ## Current state
-- Current milestone: M8 — Human-in-the-loop review workflow & SQLi regression hardening
+- Current milestone: M9 — Java Semgrep* 9-stage workflow, GitHub import, and verification
 - Status: COMPLETE
-- Last updated: 2026-10-26
+- Last updated: 2026-11-25
 - Current branch: main
-- Last known good commit, if available: 0e9330f (M7)
+- Last known good commit, if available: 6c13967 (M9 base)
 
 ## Completed work
 - [x] Repository inspected; clean initial working tree confirmed.
@@ -30,6 +30,12 @@
   - Implemented missing SQL injection regression test in `samples/sqli_app/tests/test_app.py` (`test_unsafe_lookup_treats_injection_text_as_data`), confirming failure on unpatched code (returns leaked rows) and pass on parameterized code.
   - Extended `RegressionResult` and `compare_tests()` to track `fixed_tests` (remediated test failures).
   - Evidence: 44 unit and integration tests passed (`tests/test_human_review.py` and `tests/test_regression_pipeline.py`); sqli_app isolated pipeline completed with 1 test failure remediated to pass; offline evaluation executed cleanly.
+- [x] M9: Java `Semgrep*` 9-stage platform, GitHub repository import, evidence-grounded triage, and offline cache verification:
+  - Added `securelens/repo_manager.py` for HTTPS GitHub URL validation, isolated cloning (`--no-single-branch` into `workdir/repos/`), branch listing/checkout (filtering remote `origin` alias), and file explorer filtering (excluding `ground_truth.json`, `.securelens-patched`, and `tests/`).
+  - Integrated 29 enhanced Java `Semgrep*` rules (`semgreph_data/semgrep_yaml_files/`), CWE extraction, cross-platform `semgrep`/`semgrep.exe` binary resolution in `securelens/scanner.py`, and Java method/import context extraction in `securelens/context.py`.
+  - Added evidence-grounded 3-way triage (`Confirmed` / `Dismissed` / `Uncertain` via `verify_evidence_grounding()`), full-file Java patching, and conservative `no_tests` -> `INCOMPLETE` policy in `securelens/report.py`.
+  - Polished Streamlit UI (`ui/app.py`, `.streamlit/config.toml`) with folder tree explorer, zoomable line-highlighted code viewer, and neutral dark theme.
+  - Populated `.cache/llm/` via live Gemini runs on all 4 Java samples (`cmdi_java_app`, `xxe_java_app`, `deser_java_app`, `path_ssrf_java_app`) and verified offline evaluation (`4/4` complete, `13` cache hits / `0` misses / `0` API calls) plus end-to-end GitHub repo import (`spring-guides/gs-rest-service`).
 
 ## Final review
 - [x] Security review: offline failures remain unresolved/RISKY; patches use a validated isolated copy; generated reports and local artifacts are ignored.
@@ -49,6 +55,7 @@
 | M6 | PASS | Streamlit localhost UI flow exercised on `sqli_app`; stages persisted after rerun | Offline cache miss and unavailable patch request correctly surfaced as RISKY; screenshot saved under ignored `.pytest-tmp`. |
 | M7 | PASS | 29 unit tests; 18 sample tests; four offline pipelines; evaluation aggregate 4/4 complete and 18/18 original/patched tests pass | All sample statuses RISKY because the offline cache has no model responses; this is expected and explicit. Live API was not exercised. |
 | M8 | PASS | 44 unit tests; sample suites passing; sqli_app verified with genuine SQL injection regression test (fails on vulnerable code, passes on parameterized code); HITL UI review flow verified | Human-in-the-loop review workflow, approval/rejection state machine, isolated application, and remediated test tracking completed. |
+| M9 | PASS | 52 unit tests; all 4 Java sample test suites passing; offline `eval/run_eval.py` 4/4 complete (9/9 alerts matched, 4/4 FPs removed, 0 real dismissed, 13/0/0 cache hits/misses/API); `AppTest` GitHub import & branch switch verified | Added multi-branch GitHub import, explorer filtering, cross-platform `semgrep` binary resolution, UI theme/explorer polish, and updated docs (`README.md`, `schema.md`, `CHECKLIST.md`). |
 
 ## Test history
 | Command | Result | Date/time | Notes |
@@ -90,12 +97,15 @@
 | `.\.venv311\Scripts\python.exe -m securelens.cli run samples/sqli_app --offline` | PASS (SAFE; 1 fixed test) | 2026-10-26 | Full pipeline with cached patch parameterized the function, fixed the finding, and remediated the failing SQLi test (4 passed before, 5 passed after). |
 | `.\.venv311\Scripts\python.exe -m pytest -q workdir\run_sqli_app_de48c3e466\sqli_app_patched\tests` | PASS (5 passed) | 2026-10-26 | Directly executes all 5 tests against the isolated patched copy; all 5 tests pass. |
 | `.\.venv311\Scripts\python.exe -m compileall -q securelens ui tests samples` and `git diff --check` | PASS | 2026-10-26 | Clean compilation with 0 syntax or whitespace errors across all modules and tests. |
+| `.venv/bin/python eval/run_eval.py` (`SECURELENS_OFFLINE=1`) | PASS (4/4 complete) | 2026-11-25 | Offline eval across 4 Java samples (`cmdi_java_app` SAFE, `xxe_java_app` RISKY, `deser_java_app` SAFE, `path_ssrf_java_app` RISKY); 9/9 alerts matched, 4/4 FPs removed, 0 real dismissed, 6/6 tests passed, 13/0/0 LLM hits/misses/API. |
+| `.venv/bin/python -m pytest -q tests --basetemp=.pytest-tmp` | PASS (52 passed) | 2026-11-25 | Full unit + integration + Streamlit `AppTest` suite after final edits. |
+| `.venv/bin/python -m pytest -q samples/<java_sample>/tests` | PASS (6 passed total) | 2026-11-25 | `cmdi_java_app` (2), `xxe_java_app` (2), `deser_java_app` (1), `path_ssrf_java_app` (1). |
 
 ## Known issues and blockers
 - None.
 
 ## Next exact action
-1. M8 human-in-the-loop review workflow, SQLi regression hardening, and validation tests are verified and ready for commit.
+1. All M9 tasks, documentation updates, and verification tests are complete and pushed to `origin/main`.
 
 ## Resume instructions
 Read this file and CHECKLIST.md, inspect the working tree, verify the current milestone's files, rerun relevant checks, and continue from the next incomplete task.

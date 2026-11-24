@@ -79,7 +79,13 @@ def _run_semgrep(
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Run Semgrep (using Semgrep* enhanced rules for Java or configured ruleset)."""
     config = _resolve_semgrep_config(config_override, has_java=has_java)
-    semgrep_path = shutil.which("semgrep") or str(Path(sys.executable).with_name("semgrep.exe"))
+    candidate = Path(sys.executable).with_name("semgrep")
+    candidate_exe = Path(sys.executable).with_name("semgrep.exe")
+    semgrep_path = (
+        shutil.which("semgrep")
+        or shutil.which("semgrep.exe")
+        or (str(candidate_exe) if candidate_exe.exists() else str(candidate))
+    )
     base = [semgrep_path, "scan", "--json", "--quiet", "--no-git-ignore", "--metrics", "off", "--config", config]
     excludes = _excludes(root)
     try:

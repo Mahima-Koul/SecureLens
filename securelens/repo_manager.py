@@ -12,7 +12,11 @@ from urllib.parse import urlparse
 GITHUB_URL_PATTERN = re.compile(
     r"^https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?/?$"
 )
-IGNORED_TREE_DIRS = {".git", ".venv", "venv", "__pycache__", ".cache", "workdir", "node_modules", "target", "build", ".idea"}
+IGNORED_TREE_DIRS = {
+    ".git", ".venv", "venv", "__pycache__", ".cache", "workdir",
+    "node_modules", "target", "build", ".idea", "tests", ".securelens-patched",
+}
+IGNORED_TREE_FILES = {"ground_truth.json", ".securelens-patched"}
 TEXT_EXTENSIONS = {
     ".java", ".py", ".xml", ".yml", ".yaml", ".json", ".properties",
     ".md", ".txt", ".gradle", ".sh", ".html", ".js", ".ts", ".sql",
@@ -79,7 +83,7 @@ def clone_or_open_repo(
         raise ValueError("Repository destination escapes managed workspace.") from exc
 
     if not (target_dir / ".git").is_dir():
-        cmd = ["git", "clone", "--depth", "50"]
+        cmd = ["git", "clone", "--depth", "50", "--no-single-branch"]
         if branch and branch.strip():
             cmd.extend(["--branch", branch.strip()])
         cmd.extend([normalized_url, str(target_dir)])
@@ -146,11 +150,11 @@ def list_branches(repo_dir: str | Path) -> list[str]:
     branches: list[str] = []
     for line in result.stdout.splitlines():
         name = line.strip()
-        if not name or "HEAD" in name:
+        if not name or name == "origin" or "HEAD" in name:
             continue
         if name.startswith("origin/"):
             name = name[len("origin/"):]
-        if name and name not in branches:
+        if name and name != "origin" and name not in branches:
             branches.append(name)
     return branches or ["main"]
 
@@ -197,6 +201,8 @@ def list_repo_files(repo_dir: str | Path) -> list[str]:
         except ValueError:
             continue
         if any(part in IGNORED_TREE_DIRS or part.endswith("_patched") for part in rel.parts):
+            continue
+        if path.name in IGNORED_TREE_FILES:
             continue
         if path.suffix.lower() in TEXT_EXTENSIONS or path.name in {"Dockerfile", "Makefile", "pom.xml"}:
             files.append(rel.as_posix())

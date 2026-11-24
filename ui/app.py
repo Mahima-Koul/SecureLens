@@ -1,7 +1,8 @@
-"""Streamlit UI for the 9-Stage SecureLens Platform: GitHub Import, Semgrep*, Evidence-Grounded Triage, Code Explorer, & HITL Patching."""
+"""Streamlit UI for SecureLens: GitHub Import, Semgrep*, Evidence-Grounded Triage, Code Explorer, & HITL Patching."""
 
 from __future__ import annotations
 
+import html
 import sys
 import uuid
 from collections import Counter
@@ -39,10 +40,89 @@ from securelens.report import finalize_report
 from securelens.scanner import SEMGREP_STAR_DIR
 
 st.set_page_config(page_title="SecureLens", page_icon="🔎", layout="wide")
-st.title("🔎 SecureLens")
-st.caption(
-    "9-Stage AI-Assisted Security Review: GitHub Repository Import · Semgrep* Enhanced Detection · "
-    "Evidence-Grounded Triage · Interactive Code Explorer · HITL Sandbox Verification"
+
+_DEPTH_CSS = "\n".join(
+    f'.st-key-sl_tree_box [class*="st-key-dir_btn_d{d}__"],\n'
+    f'.st-key-sl_tree_box [class*="st-key-tree_btn_d{d}__"] {{\n'
+    f"    padding-left: {d * 16}px !important;\n"
+    f"}}"
+    for d in range(16)
+)
+
+st.html(
+    f"""
+<style>
+.block-container {{
+    padding-top: 3.75rem !important;
+    padding-bottom: 2.2rem !important;
+}}
+[data-testid="stHeaderActionElements"] {{
+    display: none !important;
+}}
+button[data-testid="stBaseButton-primary"] {{
+    background-color: #238636 !important;
+    border: 1px solid rgba(240, 246, 252, 0.14) !important;
+    color: #ffffff !important;
+    font-weight: 500 !important;
+    border-radius: 6px !important;
+}}
+button[data-testid="stBaseButton-primary"]:hover {{
+    background-color: #2ea043 !important;
+    border-color: rgba(240, 246, 252, 0.22) !important;
+}}
+button[data-testid="stBaseButton-primary"]:disabled {{
+    background-color: rgba(35, 134, 54, 0.35) !important;
+    color: rgba(255, 255, 255, 0.55) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+}}
+button[data-testid="stBaseButton-secondary"] {{
+    background-color: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    color: #e6edf3 !important;
+    border-radius: 6px !important;
+}}
+button[data-testid="stBaseButton-secondary"]:hover {{
+    background-color: rgba(255, 255, 255, 0.09) !important;
+    border-color: rgba(255, 255, 255, 0.24) !important;
+}}
+button[data-baseweb="tab"][aria-selected="true"] {{
+    color: #58a6ff !important;
+}}
+[data-baseweb="tab-highlight"] {{
+    background-color: #58a6ff !important;
+}}
+.st-key-sl_tree_box [data-testid="stVerticalBlock"] {{
+    gap: 0px !important;
+}}
+.st-key-sl_tree_box button[data-testid^="stBaseButton"] {{
+    min-height: 26px !important;
+    height: auto !important;
+    padding: 2px 8px !important;
+    margin: 1px 0 !important;
+    font-size: 13px !important;
+    line-height: 1.35 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    border-radius: 5px !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+}}
+.st-key-sl_tree_box button[data-testid^="stBaseButton"]:hover {{
+    background: rgba(148, 163, 184, 0.14) !important;
+}}
+.st-key-sl_tree_box button[data-testid="stBaseButton-primary"] {{
+    background: rgba(59, 130, 246, 0.22) !important;
+    border: 1px solid rgba(59, 130, 246, 0.45) !important;
+    color: inherit !important;
+    font-weight: 600 !important;
+}}
+.st-key-sl_tree_box button[data-testid^="stBaseButton"] p {{
+    margin: 0 !important;
+    text-align: left !important;
+    white-space: nowrap !important;
+}}
+{_DEPTH_CSS}
+</style>
+"""
 )
 
 SAMPLE_ROOT = Path(__file__).resolve().parents[1] / "samples"
@@ -62,6 +142,93 @@ def _format_code_with_highlight(content: str, highlight_line: int | None = None)
     return "\n".join(formatted)
 
 
+def _render_code_viewer_html(
+    content: str,
+    *,
+    highlight_line: int | None = None,
+    font_size: int = 14,
+) -> str:
+    """Render line-numbered code HTML with zoomable font size and colored vulnerability line highlighting."""
+    clamped_size = max(12, min(22, int(font_size)))
+    lines = content.splitlines() or [""]
+    rows: list[str] = []
+    for idx, text in enumerate(lines, start=1):
+        is_hit = highlight_line == idx
+        row_style = (
+            "display:flex;align-items:baseline;padding:2px 12px;"
+            "background:linear-gradient(90deg,rgba(239,68,68,0.34) 0%,rgba(245,158,11,0.22) 100%);"
+            "border-left:4px solid #ef4444;color:#fff7ed;font-weight:600;"
+            if is_hit
+            else "display:flex;align-items:baseline;padding:1px 12px;border-left:4px solid transparent;"
+        )
+        gutter_style = (
+            "min-width:4.4em;text-align:right;padding-right:12px;user-select:none;flex-shrink:0;"
+            + ("color:#fbbf24;font-weight:700;" if is_hit else "color:#64748b;")
+        )
+        marker = f"🎯 {idx}" if is_hit else str(idx)
+        escaped_line = html.escape(text) if text else "&nbsp;"
+        rows.append(
+            f'<div style="{row_style}">'
+            f'<span style="{gutter_style}">{marker}</span>'
+            f'<span style="white-space:pre;">{escaped_line}</span>'
+            f"</div>"
+        )
+    container_style = (
+        "background:#161b22;color:#e6edf3;border:1px solid rgba(255,255,255,0.10);border-radius:8px;"
+        "padding:10px 0;max-height:460px;overflow:auto;"
+        "font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;"
+        f"font-size:{clamped_size}px;line-height:1.55;"
+    )
+    return f'<div style="{container_style}">{"".join(rows)}</div>'
+
+
+def _build_folder_tree(repo_files: list[str]) -> dict:
+    """Build a VS Code-style nested folder/file tree, compacting single-child empty folder chains."""
+    root: dict = {"dirs": {}, "files": []}
+    for rel_path in sorted(repo_files):
+        parts = rel_path.split("/")
+        node = root
+        for folder in parts[:-1]:
+            node = node["dirs"].setdefault(folder, {"dirs": {}, "files": []})
+        node["files"].append(rel_path)
+
+    def _compact_and_sort(node: dict) -> dict:
+        compacted_dirs: dict = {}
+        for name, child in sorted(node["dirs"].items(), key=lambda item: item[0].lower()):
+            cur_name = name
+            cur_child = _compact_and_sort(child)
+            while len(cur_child["dirs"]) == 1 and not cur_child["files"]:
+                sub_name, sub_node = next(iter(cur_child["dirs"].items()))
+                cur_name = f"{cur_name}/{sub_name}"
+                cur_child = sub_node
+            compacted_dirs[cur_name] = cur_child
+        return {
+            "dirs": dict(sorted(compacted_dirs.items(), key=lambda item: item[0].lower())),
+            "files": sorted(node["files"], key=lambda path: path.rsplit("/", 1)[-1].lower()),
+        }
+
+    return _compact_and_sort(root)
+
+
+def _pick_default_file(repo_files: list[str]) -> str:
+    """Prefer a primary source file (.java/.py) over metadata or rule files on initial load."""
+    for ext in (".java", ".py"):
+        for rel_path in repo_files:
+            if rel_path.endswith(ext) and not rel_path.startswith("semgreph_data/"):
+                return rel_path
+    return repo_files[0]
+
+
+def _collect_all_folder_keys(tree: dict, prefix: str = "") -> list[str]:
+    """Return every compacted folder key in a folder tree."""
+    keys: list[str] = []
+    for folder_name, child in tree["dirs"].items():
+        key = f"{prefix}/{folder_name}" if prefix else folder_name
+        keys.append(key)
+        keys.extend(_collect_all_folder_keys(child, key))
+    return keys
+
+
 def _language_for_file(filename: str) -> str:
     suffix = Path(filename).suffix.lower()
     return {
@@ -76,56 +243,122 @@ def _language_for_file(filename: str) -> str:
     }.get(suffix, "text")
 
 
+def _render_kpi_cards_html(cards: list[dict[str, str]]) -> str:
+    """Render a clean, neutral row of security KPI cards with subtle status dots."""
+    tiles: list[str] = []
+    for card in cards:
+        dot_color = html.escape(card.get("dot", "#8b949e"))
+        title = html.escape(card["title"])
+        value = html.escape(str(card["value"]))
+        subtitle = html.escape(card["subtitle"])
+        dot_html = (
+            f'<span style="width:7px;height:7px;border-radius:50%;background:{dot_color};'
+            f'display:inline-block;margin-right:7px;"></span>'
+            if card.get("dot")
+            else ""
+        )
+        tiles.append(
+            '<div style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.09);'
+            'border-radius:8px;padding:14px 16px;">'
+            f'<div style="display:flex;align-items:center;font-size:12.5px;font-weight:500;color:#8b949e;">'
+            f'{dot_html}<span>{title}</span></div>'
+            f'<div style="font-size:26px;font-weight:600;color:#f0f6fc;line-height:1.2;margin:6px 0 3px 0;'
+            f'font-variant-numeric:tabular-nums;">{value}</div>'
+            f'<div style="font-size:12px;color:#6e7681;">{subtitle}</div>'
+            "</div>"
+        )
+    return (
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));'
+        'gap:10px;margin:4px 0 10px 0;">'
+        + "".join(tiles)
+        + "</div>"
+    )
+
+
+def _render_breakdown_bar_html(
+    label: str,
+    summary_text: str,
+    segments: list[tuple[str, int, str]],
+) -> str:
+    """Render a quiet, minimal segmented breakdown strip."""
+    total = sum(count for _, count, _ in segments)
+    legend = "".join(
+        f'<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#8b949e;">'
+        f'<span style="width:6px;height:6px;border-radius:50%;background:{html.escape(color)};display:inline-block;"></span>'
+        f'<span>{html.escape(name)} <strong style="color:#e6edf3;font-weight:600;">{count}</strong></span>'
+        f"</span>"
+        for name, count, color in segments
+    )
+    if total > 0:
+        bar_parts = "".join(
+            f'<div style="width:{(count / total) * 100:.2f}%;background:{html.escape(color)};height:100%;"></div>'
+            for _, count, color in segments
+            if count > 0
+        )
+    else:
+        bar_parts = '<div style="width:100%;background:rgba(255,255,255,0.06);height:100%;"></div>'
+
+    return (
+        '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);'
+        'border-radius:8px;padding:10px 14px;margin:0 0 14px 0;">'
+        '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">'
+        f'<div style="font-size:12.5px;font-weight:500;color:#c9d1d9;">{html.escape(label)}'
+        f' <span style="font-weight:400;color:#6e7681;margin-left:8px;">{html.escape(summary_text)}</span></div>'
+        f'<div style="display:flex;flex-wrap:wrap;gap:14px;">{legend}</div>'
+        "</div>"
+        '<div style="display:flex;height:4px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,0.06);">'
+        f"{bar_parts}"
+        "</div>"
+        "</div>"
+    )
+
+
+SAMPLE_DESCRIPTIONS = {
+    "cmdi_java_app": "OS Command Injection (CWE-78)",
+    "xxe_java_app": "XML External Entity (CWE-611)",
+    "deser_java_app": "Unsafe Deserialization (CWE-502)",
+    "path_ssrf_java_app": "Path Traversal & SSRF (CWE-22 / CWE-918)",
+    "sqli_app": "SQL Injection (Bandit B608)",
+    "cmdi_app": "Command Injection (Bandit B602/B605)",
+    "secrets_deser_app": "Hard-coded Secrets & Pickle",
+    "wow_app": "Dynamic Evaluation (eval)",
+}
+
 with st.sidebar:
-    st.header("1. GitHub Repository Import")
-    with st.expander("➕ Import GitHub Repository", expanded=False):
-        gh_url = st.text_input("GitHub Repository URL", placeholder="https://github.com/owner/repo")
-        gh_branch = st.text_input("Branch (optional)", placeholder="main")
-        if st.button("Clone & Import Repository", use_container_width=True):
-            try:
-                with st.spinner("Validating URL and cloning into isolated workspace…"):
-                    imported = clone_or_open_repo(gh_url, branch=gh_branch or None)
-                    st.session_state["sl_active_source_type"] = "Imported GitHub Repo"
-                    st.session_state["sl_selected_repo_id"] = imported.id
-                    st.success(f"Imported {imported.label} ({imported.current_branch})")
-                    st.rerun()
-            except Exception as exc:
-                st.error(f"Import failed: {exc}")
-
+    st.subheader("Workspace")
     imported_repos = list_imported_repos()
-    if imported_repos:
-        st.caption("Managed Workspace Repositories:")
-        for repo in imported_repos:
-            if st.button(f"📁 {repo.label} [{repo.current_branch}]", key=f"side_repo_{repo.id}", use_container_width=True):
-                st.session_state["sl_active_source_type"] = "Imported GitHub Repo"
-                st.session_state["sl_selected_repo_id"] = repo.id
-                st.rerun()
-
-    st.divider()
-    st.header("2. Select Active Workspace")
-    source_options = ["Semgrep* Java Samples", "Imported GitHub Repo", "Python Samples", "Custom Local Folder"]
-    default_idx = 1 if (st.session_state.get("sl_active_source_type") == "Imported GitHub Repo" and imported_repos) else 0
-    source_type = st.selectbox("Workspace source", source_options, index=default_idx)
+    source_options = [
+        "Java Samples (Semgrep*)",
+        "GitHub Repository",
+        "Python Samples (Bandit)",
+        "Local Folder",
+    ]
+    saved_source = st.session_state.get("sl_active_source_type", source_options[0])
+    if saved_source not in source_options:
+        saved_source = source_options[0]
+    source_type = st.selectbox(
+        "Source",
+        source_options,
+        index=source_options.index(saved_source),
+    )
     st.session_state["sl_active_source_type"] = source_type
 
     active_repo = None
-    if source_type == "Semgrep* Java Samples":
-        selection = st.selectbox("Java Sample Project (Semgrep*)", JAVA_SAMPLE_NAMES)
+    if source_type == "Java Samples (Semgrep*)":
+        selection = st.selectbox("Java sample", JAVA_SAMPLE_NAMES)
+        st.caption(SAMPLE_DESCRIPTIONS.get(selection, ""))
         project = SAMPLE_ROOT / selection
-    elif source_type == "Imported GitHub Repo":
-        if not imported_repos:
-            st.warning("No GitHub repositories imported yet. Use 'Import GitHub Repository' above.")
-            project = SAMPLE_ROOT / JAVA_SAMPLE_NAMES[0]
-        else:
+    elif source_type == "GitHub Repository":
+        if imported_repos:
             repo_map = {r.id: r for r in imported_repos}
             default_id = st.session_state.get("sl_selected_repo_id")
             if default_id not in repo_map:
                 default_id = imported_repos[0].id
             chosen_label = st.selectbox(
-                "Imported Repository",
+                "Repository",
                 options=list(repo_map.keys()),
                 index=list(repo_map.keys()).index(default_id),
-                format_func=lambda rid: repo_map[rid].label,
+                format_func=lambda rid: f"{repo_map[rid].owner}/{repo_map[rid].name}",
             )
             st.session_state["sl_selected_repo_id"] = chosen_label
             active_repo = repo_map[chosen_label]
@@ -135,33 +368,55 @@ with st.sidebar:
             cur_branch = active_repo.current_branch if active_repo.current_branch in branches else branches[0]
             selected_branch = st.selectbox("Branch", branches, index=branches.index(cur_branch))
             if selected_branch != active_repo.current_branch:
-                if st.button(f"Switch to branch `{selected_branch}`"):
+                if st.button(f"Switch to {selected_branch}", use_container_width=True):
                     try:
                         checkout_branch(project, selected_branch)
                         st.success(f"Switched to {selected_branch}")
                         st.rerun()
                     except Exception as exc:
                         st.error(str(exc))
-    elif source_type == "Python Samples":
-        selection = st.selectbox("Python Sample Project", PYTHON_SAMPLE_NAMES)
+        else:
+            st.caption("No repositories imported yet. Import one below.")
+            project = SAMPLE_ROOT / JAVA_SAMPLE_NAMES[0]
+    elif source_type == "Python Samples (Bandit)":
+        selection = st.selectbox("Python sample", PYTHON_SAMPLE_NAMES)
+        st.caption(SAMPLE_DESCRIPTIONS.get(selection, ""))
         project = SAMPLE_ROOT / selection
     else:
-        custom_path = st.text_input("Local project folder", value=str(SAMPLE_ROOT / JAVA_SAMPLE_NAMES[0]))
+        custom_path = st.text_input("Folder path", value=str(SAMPLE_ROOT / JAVA_SAMPLE_NAMES[0]))
         project = Path(custom_path).expanduser()
 
+    with st.expander("➕ Import GitHub Repository", expanded=(source_type == "GitHub Repository" and not imported_repos)):
+        gh_url = st.text_input("Repository URL", placeholder="https://github.com/owner/repo")
+        gh_branch = st.text_input("Branch (optional)", placeholder="main")
+        if st.button("Clone & Open", use_container_width=True):
+            try:
+                with st.spinner("Cloning repository into isolated workspace…"):
+                    imported = clone_or_open_repo(gh_url, branch=gh_branch or None)
+                    st.session_state["sl_active_source_type"] = "GitHub Repository"
+                    st.session_state["sl_selected_repo_id"] = imported.id
+                    st.success(f"Imported {imported.owner}/{imported.name} ({imported.current_branch})")
+                    st.rerun()
+            except Exception as exc:
+                st.error(f"Import failed: {exc}")
+
     st.divider()
-    st.header("3. Scanner & AI Settings")
+    st.subheader("Settings")
     model_name = st.text_input("Gemini model", value=settings.gemini_model)
     offline = st.checkbox("Offline mode (cache only)", value=settings.offline)
     rule_count = len(list(SEMGREP_STAR_DIR.glob("*.yaml"))) if SEMGREP_STAR_DIR.is_dir() else 0
-    st.caption(f"Scanner: **Semgrep\*** ({rule_count} enhanced Java rules) + applicable Bandit")
-    st.caption(f"Model: `{model_name}`")
+    st.caption(f"Scanners: Semgrep* ({rule_count} Java rules) & Bandit")
 
 project = project.resolve()
 project_key = str(project)
 if st.session_state.get("sl_project_key") != project_key:
     for key in list(st.session_state):
-        if key.startswith("sl_") and key not in {"sl_project_key", "sl_active_source_type", "sl_selected_repo_id"}:
+        if key.startswith("sl_") and key not in {
+            "sl_project_key",
+            "sl_active_source_type",
+            "sl_selected_repo_id",
+            "sl_code_font_size",
+        }:
             del st.session_state[key]
     st.session_state["sl_project_key"] = project_key
 
@@ -221,54 +476,173 @@ def _current_report() -> PipelineReport:
 # =====================================================================
 # STAGE 1: REPOSITORY FILE EXPLORER & INTERACTIVE CODE VIEWER
 # =====================================================================
-st.subheader(f"Stage 1 — Repository Workspace & Code Explorer (`{project.name}`)")
 repo_files = list_repo_files(project)
+file_word = "file" if len(repo_files) == 1 else "files"
+branch_tag = (
+    f'<span style="border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);'
+    f'color:#c9d1d9;padding:4px 10px;border-radius:6px;font-size:12px;">branch: {html.escape(active_repo.current_branch)}</span>'
+    if active_repo is not None
+    else ""
+)
+mode_dot = "#3fb950" if offline else "#58a6ff"
+mode_label = "Offline cache" if offline else "Live API"
+st.html(
+    f"""
+<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;
+background:#161b22;border:1px solid rgba(255,255,255,0.12);border-left:3px solid #2f81f7;
+border-radius:10px;padding:16px 20px;margin-bottom:16px;">
+  <div>
+    <div style="font-size:24px;font-weight:600;color:#f0f6fc;letter-spacing:-0.015em;line-height:1.25;">
+      🔎 SecureLens
+    </div>
+    <div style="font-size:13px;color:#8b949e;margin-top:4px;">
+      Static security analysis, evidence-grounded triage, and isolated patch verification
+    </div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+    <span style="border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e6edf3;padding:4px 10px;border-radius:6px;font-size:12px;">
+      {html.escape(project.name)} · {len(repo_files)} {file_word}
+    </span>
+    {branch_tag}
+    <span style="border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#c9d1d9;padding:4px 10px;border-radius:6px;font-size:12px;">
+      <span style="color:{mode_dot};">●</span> {mode_label} · {html.escape(model_name)}
+    </span>
+  </div>
+</div>
+"""
+)
+st.subheader("Repository Explorer")
 if not repo_files:
     st.warning(f"No readable source files found in `{project}`.")
 else:
-    col_tree, col_viewer = st.columns([1, 2.4])
+    col_tree, col_viewer = st.columns([1.05, 2.35])
     focused_file = st.session_state.get("sl_focused_file")
     if focused_file not in repo_files:
-        focused_file = repo_files[0]
+        focused_file = _pick_default_file(repo_files)
         st.session_state["sl_focused_file"] = focused_file
     focused_line = st.session_state.get("sl_focused_line")
 
     with col_tree:
-        st.markdown("**📂 Repository Structure**")
-        selected_file = st.selectbox(
-            "Select file to inspect",
-            repo_files,
-            index=repo_files.index(focused_file),
-            key="sl_file_selector",
-        )
-        if selected_file != focused_file:
-            st.session_state["sl_focused_file"] = selected_file
-            st.session_state["sl_focused_line"] = None
-            focused_file = selected_file
-            focused_line = None
+        st.markdown("**📂 Folder Tree**")
 
-        with st.container(height=240):
-            for rel_path in repo_files:
+        def _on_file_selector_change() -> None:
+            st.session_state["sl_focused_file"] = st.session_state["sl_file_selector"]
+            st.session_state["sl_focused_line"] = None
+
+        st.session_state["sl_file_selector"] = focused_file
+        st.selectbox(
+            "Find file",
+            repo_files,
+            key="sl_file_selector",
+            on_change=_on_file_selector_change,
+            label_visibility="collapsed",
+        )
+
+        tree = _build_folder_tree(repo_files)
+        all_folder_keys = _collect_all_folder_keys(tree)
+        if "sl_expanded_folders" not in st.session_state:
+            initial_expanded = {"__root__"}
+            initial_expanded.update(k for k in all_folder_keys if focused_file.startswith(f"{k}/"))
+            st.session_state["sl_expanded_folders"] = initial_expanded
+            st.session_state["sl_tree_revealed_file"] = focused_file
+        elif st.session_state.get("sl_tree_revealed_file") != focused_file:
+            st.session_state["sl_expanded_folders"].add("__root__")
+            st.session_state["sl_expanded_folders"].update(
+                k for k in all_folder_keys if focused_file.startswith(f"{k}/")
+            )
+            st.session_state["sl_tree_revealed_file"] = focused_file
+
+        expanded_folders: set[str] = st.session_state["sl_expanded_folders"]
+
+        def _render_tree_node(
+            node: dict,
+            prefix: str = "",
+            depth: int = 1,
+        ) -> None:
+            for folder_name, child in node["dirs"].items():
+                folder_key = f"{prefix}/{folder_name}" if prefix else folder_name
+                is_open = folder_key in expanded_folders
+                arrow = "▾ 📂" if is_open else "▸ 📁"
+                if st.button(
+                    f"{arrow} {folder_name}",
+                    key=f"dir_btn_d{depth}__{folder_key}",
+                    type="tertiary",
+                    width="content",
+                ):
+                    if is_open:
+                        expanded_folders.discard(folder_key)
+                    else:
+                        expanded_folders.add(folder_key)
+                    st.rerun()
+                if is_open:
+                    _render_tree_node(child, folder_key, depth + 1)
+
+            for rel_path in node["files"]:
+                file_name = rel_path.rsplit("/", 1)[-1]
                 icon = "☕" if rel_path.endswith(".java") else ("🐍" if rel_path.endswith(".py") else "📄")
-                label = f"**{icon} {rel_path}**" if rel_path == focused_file else f"{icon} {rel_path}"
-                if st.button(label, key=f"tree_btn_{rel_path}", use_container_width=True):
+                is_active = rel_path == focused_file
+                if st.button(
+                    f"{icon} {file_name}",
+                    key=f"tree_btn_d{depth}__{rel_path}",
+                    type="primary" if is_active else "tertiary",
+                    width="content",
+                ):
                     st.session_state["sl_focused_file"] = rel_path
                     st.session_state["sl_focused_line"] = None
                     st.rerun()
 
+        with st.container(border=True, height=400, key="sl_tree_box", gap=None, horizontal_alignment="left"):
+            root_open = "__root__" in expanded_folders
+            root_arrow = "▾ 📦" if root_open else "▸ 📦"
+            if st.button(
+                f"{root_arrow} {project.name}",
+                key="dir_btn_d0____root__",
+                type="tertiary",
+                width="content",
+            ):
+                if root_open:
+                    expanded_folders.discard("__root__")
+                else:
+                    expanded_folders.add("__root__")
+                st.rerun()
+            if root_open:
+                _render_tree_node(tree, depth=1)
+
     with col_viewer:
-        header_text = f"**📄 Code Viewer: `{focused_file}`**"
-        if focused_line:
-            header_text += f" — 🎯 **Highlighted Finding at Line {focused_line}** (`>>>`)"
-        st.markdown(header_text)
+        font_size = int(st.session_state.get("sl_code_font_size", 14))
+        head_col, zoom_out_col, zoom_val_col, zoom_in_col = st.columns([5.2, 0.9, 0.8, 0.9])
+        with head_col:
+            line_badge = f" · 🎯 Line {focused_line}" if focused_line else ""
+            st.markdown(
+                f"<div style='padding-top:4px;font-size:14px;'>"
+                f"<strong>📄 Code Viewer</strong>{line_badge}<br>"
+                f"<span style='color:#94a3b8;font-family:monospace;font-size:12px;'>{html.escape(focused_file)}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with zoom_out_col:
+            if st.button("A-", key="sl_zoom_out", help="Zoom Out (smaller font)", disabled=(font_size <= 12), use_container_width=True):
+                st.session_state["sl_code_font_size"] = max(12, font_size - 2)
+                st.rerun()
+        with zoom_val_col:
+            st.markdown(f"<div style='text-align:center;padding-top:6px;font-size:13px;color:#94a3b8;'>{font_size}px</div>", unsafe_allow_html=True)
+        with zoom_in_col:
+            if st.button("A+", key="sl_zoom_in", help="Zoom In (larger font)", disabled=(font_size >= 22), use_container_width=True):
+                st.session_state["sl_code_font_size"] = min(22, font_size + 2)
+                st.rerun()
+
         try:
             file_content = read_repo_file(project, focused_file)
             if focused_line:
                 lines = file_content.splitlines()
                 if 1 <= focused_line <= len(lines):
-                    st.warning(f"🎯 **Line {focused_line}:** `{lines[focused_line - 1].strip()}`")
-            numbered_code = _format_code_with_highlight(file_content, highlight_line=focused_line)
-            st.code(numbered_code, language=_language_for_file(focused_file))
+                    st.warning(f"🎯 **Highlighted Finding — Line {focused_line}:** `{lines[focused_line - 1].strip()}`")
+            viewer_html = _render_code_viewer_html(
+                file_content,
+                highlight_line=focused_line,
+                font_size=font_size,
+            )
+            st.html(viewer_html)
         except Exception as exc:
             st.error(f"Could not read file: {exc}")
 
@@ -317,17 +691,50 @@ triage_state = _get_state("triage", {})
 
 if scan_state is not None:
     findings: list[Finding] = scan_state.get("findings", [])
-    st.subheader("Stage 2 — Static Security Scan Results (Semgrep* + Applicable Bandit)")
+    st.subheader("Static Security Scan")
     by_tool = Counter(item.tool for item in findings)
     by_severity = Counter(item.severity for item in findings)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Findings", len(findings))
-    c2.metric("Semgrep* Alerts", by_tool.get("semgrep", 0))
-    c3.metric("Bandit Alerts", by_tool.get("bandit", 0))
-    c4.metric("High Severity", by_severity.get("HIGH", 0))
-    st.caption(
-        "By severity: "
-        + ", ".join(f"{name}: {by_severity.get(name, 0)}" for name in ("HIGH", "MEDIUM", "LOW"))
+    high_cnt = by_severity.get("HIGH", 0)
+    med_cnt = by_severity.get("MEDIUM", 0)
+    low_cnt = by_severity.get("LOW", 0)
+    semgrep_cnt = by_tool.get("semgrep", 0)
+    bandit_cnt = by_tool.get("bandit", 0)
+
+    st.html(
+        _render_kpi_cards_html([
+            {
+                "title": "Total findings",
+                "value": str(len(findings)),
+                "subtitle": "Raw static-analysis alerts",
+            },
+            {
+                "title": "Semgrep*",
+                "value": str(semgrep_cnt),
+                "subtitle": "Pattern & CWE rules",
+            },
+            {
+                "title": "Bandit",
+                "value": str(bandit_cnt),
+                "subtitle": "Python AST checks",
+            },
+            {
+                "title": "High severity",
+                "value": str(high_cnt),
+                "subtitle": f"{med_cnt} medium · {low_cnt} low",
+                "dot": "#cf5b56" if high_cnt else "#3f8f56",
+            },
+        ])
+    )
+    st.html(
+        _render_breakdown_bar_html(
+            "Severity distribution",
+            f"{len(findings)} alert(s)",
+            [
+                ("High", high_cnt, "#cf5b56"),
+                ("Medium", med_cnt, "#c48a34"),
+                ("Low", low_cnt, "#6e7681"),
+            ],
+        )
     )
 
     if not findings:
@@ -367,18 +774,54 @@ if scan_state is not None:
     # =====================================================================
     # STAGE 3 & STAGE 4: VULNERABILITY DASHBOARD & CODE VISUALIZATION
     # =====================================================================
-    st.subheader("Stage 3 & 4 — Evidence-Grounded AI Triage & Vulnerability Dashboard")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🚨 Confirmed (True Positives)", len(strict_confirmed_list))
-    m2.metric("⚠️ Uncertain (Retained Conservatively)", len(uncertain_list))
-    m3.metric("✅ Dismissed (False Positives Removed)", len(dismissed_list))
-    m4.metric("🔧 Active for Remediation", len(all_confirmed))
+    st.subheader("AI Triage & Vulnerability Dashboard")
+    total_alerts = len(findings)
+    filtered_pct = round((len(dismissed_list) / total_alerts) * 100) if total_alerts else 0
+    st.html(
+        _render_kpi_cards_html([
+            {
+                "title": "Confirmed",
+                "value": str(len(strict_confirmed_list)),
+                "subtitle": "Verified true positives",
+                "dot": "#cf5b56",
+            },
+            {
+                "title": "Uncertain",
+                "value": str(len(uncertain_list)),
+                "subtitle": "Retained conservatively",
+                "dot": "#c48a34",
+            },
+            {
+                "title": "Dismissed",
+                "value": str(len(dismissed_list)),
+                "subtitle": f"{filtered_pct}% false positives filtered",
+                "dot": "#3f8f56",
+            },
+            {
+                "title": "To remediate",
+                "value": str(len(all_confirmed)),
+                "subtitle": "Queued for patching",
+                "dot": "#8b949e",
+            },
+        ])
+    )
+    st.html(
+        _render_breakdown_bar_html(
+            "Triage outcome",
+            f"{total_alerts} scanned → {len(dismissed_list)} filtered ({filtered_pct}% reduction)",
+            [
+                ("Confirmed", len(strict_confirmed_list), "#cf5b56"),
+                ("Uncertain", len(uncertain_list), "#c48a34"),
+                ("Dismissed", len(dismissed_list), "#3f8f56"),
+            ],
+        )
+    )
 
     tab_all, tab_conf, tab_unc, tab_dism = st.tabs([
-        f"📊 All Findings Dashboard ({len(findings)})",
-        f"🚨 Confirmed ({len(strict_confirmed_list)})",
-        f"⚠️ Uncertain ({len(uncertain_list)})",
-        f"✅ Dismissed ({len(dismissed_list)})",
+        f"All findings ({len(findings)})",
+        f"Confirmed ({len(strict_confirmed_list)})",
+        f"Uncertain ({len(uncertain_list)})",
+        f"Dismissed ({len(dismissed_list)})",
     ])
 
     def _render_finding_cards(group: list[Finding], tab_prefix: str) -> None:
@@ -452,7 +895,7 @@ if scan_state is not None:
     # =====================================================================
     # STAGE 5 & STAGE 6: PATCH GENERATION & HUMAN-IN-THE-LOOP APPROVAL
     # =====================================================================
-    st.subheader("Stage 5 & 6 — Patch Generation & Human-in-the-Loop (HITL) Approval")
+    st.subheader("Proposed Patches & Review")
     proposed_state = _get_state("proposed_patches", None)
     fixes_state = _get_state("fixes", None)
 
@@ -487,11 +930,33 @@ if scan_state is not None:
             approved_count = sum(1 for p in patches if p.status == "approved")
             rejected_count = sum(1 for p in patches if p.status == "rejected")
 
-            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-            col_m1.metric("Proposed Patches", len(patches))
-            col_m2.metric("⏳ Pending Review", pending_count)
-            col_m3.metric("✅ Approved", approved_count)
-            col_m4.metric("❌ Rejected", rejected_count)
+            st.html(
+                _render_kpi_cards_html([
+                    {
+                        "title": "Proposed patches",
+                        "value": str(len(patches)),
+                        "subtitle": "Files with generated fixes",
+                    },
+                    {
+                        "title": "Pending review",
+                        "value": str(pending_count),
+                        "subtitle": "Awaiting decision",
+                        "dot": "#c48a34",
+                    },
+                    {
+                        "title": "Approved",
+                        "value": str(approved_count),
+                        "subtitle": "Ready for sandbox apply",
+                        "dot": "#3f8f56",
+                    },
+                    {
+                        "title": "Rejected",
+                        "value": str(rejected_count),
+                        "subtitle": "Excluded from sandbox",
+                        "dot": "#cf5b56",
+                    },
+                ])
+            )
 
             if fixes_state is None and len(patches) > 1:
                 b_col1, b_col2, _ = st.columns([1, 1, 2])
@@ -604,7 +1069,7 @@ if scan_state is not None:
     fixes_state = _get_state("fixes", None)
     if fixes_state is not None:
         st.divider()
-        st.subheader("Stage 7 — Post-Patch Security Rescan (Semgrep* Before vs. After)")
+        st.subheader("Post-Patch Security Rescan")
         diff = fixes_state.get("diff")
         if diff:
             applied = fixes_state.get("applied_patches", [])
@@ -650,7 +1115,7 @@ if scan_state is not None:
         else:
             st.warning("Patched rescan did not produce a complete comparison.")
 
-        st.subheader("Stage 8 — Functional Regression Testing")
+        st.subheader("Regression Tests")
         regression = fixes_state.get("regression")
         if regression:
             orig_status = getattr(regression.original, "status", "ran")
@@ -676,7 +1141,7 @@ if scan_state is not None:
         else:
             st.warning("Patched regression tests did not complete.")
 
-        st.subheader("Stage 9 — Final Assessment Verdict")
+        st.subheader("Final Security Verdict")
         report = _current_report()
         if report.final_status == "SAFE":
             st.success("🟢 **SAFE** — " + " ".join(report.status_reasons))
@@ -687,4 +1152,4 @@ if scan_state is not None:
         for error in report.errors:
             st.error(error)
 else:
-    st.info("Inspect files in the Code Explorer above or click **🚀 Run Semgrep* Scan & AI Triage** to start the 9-stage pipeline.")
+    st.info("Inspect files in the explorer above or click **🚀 Run Semgrep* Scan & AI Triage** to begin the security review.")

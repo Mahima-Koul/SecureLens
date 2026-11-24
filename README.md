@@ -1,8 +1,8 @@
 # SecureLens
 
-SecureLens is a student demonstration of AI-assisted Python security review. It combines Semgrep and Bandit findings, sends structured code context to Gemini for conservative triage, proposes complete-file patches in an isolated copy, rescans that copy, and compares its pytest results with the original.
+SecureLens is a **9-stage AI-assisted security review and automated patch verification platform** focused on **Java** (powered by **Semgrep\*** enhanced rules in `semgreph_data/semgrep_yaml_files/`), with full backward-compatibility for **Python** (Semgrep + Bandit). It supports importing public HTTPS GitHub repositories into an isolated workspace, runs static analysis, extracts AST / Java method context, uses Google Gemini (`gemini-3.5-flash-lite`) for evidence-grounded 3-way triage (`Confirmed` / `Dismissed` / `Uncertain`), proposes complete-file patches with Human-in-the-Loop (HITL) approval, applies approved patches only to an isolated copy under `workdir/`, rescans the patched copy, and compares regression tests.
 
-The final status is **SAFE**, **RISKY**, or **INCOMPLETE**. A missing API response is kept visible as unresolved and cannot silently turn into a clean result. SecureLens is an educational aid, not a substitute for a security review.
+The final status is **SAFE**, **RISKY**, or **INCOMPLETE**. Unresolved API calls, unverified dismissal evidence, or repositories without a compatible regression test suite (`no_tests`) cannot silently turn into **SAFE**. SecureLens is an educational aid, not a substitute for a security review.
 
 ## Requirements
 
@@ -37,37 +37,49 @@ Optional settings:
 | `SECURELENS_CACHE_DIR` | `.cache/llm` | Local response cache (contains code-derived prompts; keep private) |
 | `SECURELENS_TRIAGE_THRESHOLD` | `0.7` | Confidence below which a negative verdict stays confirmed |
 | `SECURELENS_TOOL_TIMEOUT` | `60` | Scanner, test, and API timeout in seconds |
-| `SECURELENS_SEMGREP_CONFIG` | default Python rules | Optional Semgrep config, such as `p/python` |
+| `SECURELENS_SEMGREP_CONFIG` | `semgreph_data/semgrep_yaml_files` (for Java) or `p/python` | Optional Semgrep config override |
+
+## 9-Stage Workflow
+
+1. **GitHub Repository Import & Workspace Explorer (`securelens/repo_manager.py`):** Validates HTTPS GitHub URLs, clones into `workdir/repos/`, supports branch switching, and displays a clickable folder/file explorer with zoomable, line-highlighted Code Viewer in the Streamlit UI.
+2. **Static Security Scan (`securelens/scanner.py`):** Runs **Semgrep\*** (29 enhanced Java rules in `semgreph_data/semgrep_yaml_files/`) on Java projects and Semgrep + Bandit on Python projects, extracting CWE metadata and deduplicating alerts.
+3. **AST / Java Method Context Extraction & Evidence-Grounded AI Triage (`securelens/context.py`, `securelens/triage.py`):** Pulls package/import statements and the enclosing Java method or Python AST function, classifies findings as `Confirmed`, `Dismissed`, or `Uncertain`, and runs `verify_evidence_grounding()` to verify cited lines and snippets against the real file.
+4. **Vulnerability Dashboard & Code Highlighting (`ui/app.py`):** Groups findings by status (`Confirmed`, `Uncertain`, `Dismissed`) and lets reviewers jump directly to highlighted lines in the Code Viewer.
+5. **Complete-File Patch Generation (`securelens/fixer.py`):** Generates full-file replacements and unified diffs (`status = "pending"`).
+6. **Human-in-the-Loop (HITL) Approval & Isolated Sandbox Application (`ui/app.py`, `securelens/fixer.py`):** Reviewers inspect diffs and **Approve** or **Reject** patches; approved patches are applied only to a cloned copy in `workdir/`.
+7. **Post-Patch Rescan (`securelens/differ.py`):** Rescans the patched copy and classifies findings into `Fixed`, `Remaining`, and `New` using location-independent SHA-1 fingerprints.
+8. **Functional Regression Testing (`securelens/regression.py`):** Runs `pytest` with JUnit XML parsing; repositories with no compatible tests are recorded as `status = "no_tests"`.
+9. **Final Assessment Verdict (`securelens/report.py`):** Emits **SAFE**, **RISKY**, or **INCOMPLETE** (marking `no_tests` repositories as **INCOMPLETE** rather than falsely **SAFE**).
 
 ## Run a sample
 
-1. Start with a scan and triage:
+1. Start with a Java (`Semgrep*`) or Python scan and triage:
 
    ```powershell
-   python -m securelens.cli scan samples/sqli_app
+   python -m securelens.cli scan samples/cmdi_java_app
    ```
 
-2. Run the full pipeline:
+2. Run the full pipeline (add `--interactive` to approve/reject each patch in the CLI):
 
    ```powershell
-   python -m securelens.cli run samples/sqli_app
+   python -m securelens.cli run samples/cmdi_java_app
    ```
 
 3. Add `--json` to `run` for a machine-readable report, or `--offline` to use only cache entries:
 
    ```powershell
-   python -m securelens.cli run samples/sqli_app --offline --json
+   python -m securelens.cli run samples/cmdi_java_app --offline --json
    ```
 
-4. Launch the staged interface:
+4. Launch the 9-stage Streamlit dashboard:
 
    ```powershell
    streamlit run ui/app.py
    ```
 
-   Choose a sample or Python project, select the model, and optionally enable offline mode. Use **Scan and triage**, review the finding tabs, then choose **Generate fixes**. Generated changes go into `workdir/<project>_patched` or a unique run directory; the source project is not modified. The UI retains completed stages during reruns.
+   Select a source in the sidebar (**Java Samples (Semgrep\*)**, **GitHub Repository**, **Python Samples (Bandit)**, or **Local Folder**), inspect files in the Repository Explorer, run **🚀 Run Semgrep\* Scan & AI Triage**, review findings and highlight lines, approve/reject proposed patches, and inspect the post-patch rescan, regression results, and final verdict. Generated changes go into `workdir/`; the source project is never modified.
 
-5. Run the evaluation over all four ground-truth samples:
+5. Run the evaluation over the ground-truth samples:
 
    ```powershell
    python eval/run_eval.py
@@ -78,34 +90,44 @@ Optional settings:
 6. Run checks:
 
    ```powershell
-   python -m pytest -q tests
+   python -m pytest -q tests --basetemp=.pytest-tmp
+   python -m pytest -q samples/cmdi_java_app/tests
+   python -m pytest -q samples/xxe_java_app/tests
+   python -m pytest -q samples/deser_java_app/tests
+   python -m pytest -q samples/path_ssrf_java_app/tests
    python -m pytest -q samples/sqli_app/tests
    python -m pytest -q samples/cmdi_app/tests
    python -m pytest -q samples/secrets_deser_app/tests
    python -m pytest -q samples/wow_app/tests
    ```
 
-The four small samples cover SQL injection, command injection, hard-coded credential/unsafe deserialization/weak hashing, and dynamic evaluation. They also include safe patterns and regression tests. Each `ground_truth.json` lists expected alert categories, approximate line hints, and whether each is real.
+The four Java samples (`cmdi_java_app`, `xxe_java_app`, `deser_java_app`, `path_ssrf_java_app`) cover OS command injection, XXE, unsafe deserialization, and path traversal/SSRF alongside safe false-positive patterns. The four Python samples cover SQL injection, command injection, hard-coded credential/unsafe deserialization/weak hashing, and dynamic evaluation. Each `ground_truth.json` lists expected alert categories, approximate line hints, and whether each is real.
 
 ## Architecture
 
 ```text
-Python project
+GitHub Repo (workdir/repos/) or Local Java / Python Project
      |
-     +--> Semgrep + Bandit --> normalized findings --> AST context
-                                                   |
-                                                   v
-                                         Gemini structured triage
-                                                   |
-                                                   v
-                          confirmed findings --> proposed full-file patches
-                                                   |
-                         original project         v
-                                   \       isolated patched copy
-                                    \             |
-                                     +--> rescan + pytest comparison
-                                                   |
-                                  SAFE / RISKY / INCOMPLETE report
+     +--> Semgrep* (29 Java rules) + Bandit (Python) --> normalized findings (with CWE)
+                                                              |
+                                                              v
+                                            Java method / Python AST context
+                                                              |
+                                                              v
+                                  Gemini structured triage + evidence grounding
+                                     (Confirmed / Dismissed / Uncertain)
+                                                              |
+                                                              v
+                     confirmed & uncertain --> proposed full-file patches (pending)
+                                                              |
+                                                 HITL Approve / Reject
+                                                              |
+                         original project                     v
+                                   \           isolated patched copy (workdir/)
+                                    \                         |
+                                     +--> Semgrep* rescan + pytest comparison
+                                                              |
+                                             SAFE / RISKY / INCOMPLETE report
 ```
 
 The CLI and UI use the same pipeline. Pydantic models validate model output and cached responses. The cache key includes model, prompt, input, and response schema; entries are written atomically. Offline cache misses remain unresolved and are conservatively confirmed. Patch application rejects unsafe paths and stale source, stages changes in a copy, and keeps generated work under `workdir/`.

@@ -42,6 +42,12 @@ def test_repo_file_explorer_lists_and_reads_java_safely(tmp_path):
     java_file = tmp_path / "src" / "Main.java"
     java_file.write_text("package demo;\npublic class Main {}\n", encoding="utf-8")
 
+    # Benchmark/test metadata and marker files should be hidden in the UI file explorer
+    (tmp_path / "ground_truth.json").write_text("{}", encoding="utf-8")
+    (tmp_path / ".securelens-patched").write_text("1", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_app.py").write_text("def test_ok(): pass\n", encoding="utf-8")
+
     files = list_repo_files(tmp_path)
     assert files == ["src/Main.java"]
     assert "public class Main" in read_repo_file(tmp_path, "src/Main.java")
@@ -192,3 +198,15 @@ def test_absence_of_tests_in_imported_repo_is_incomplete_not_safe():
     finalized = finalize_report(report)
     assert finalized.final_status == "INCOMPLETE"
     assert any("absence of tests" in r for r in finalized.status_reasons)
+
+
+def test_ui_code_viewer_zoom_controls_and_tree():
+    from streamlit.testing.v1 import AppTest
+
+    ui_path = Path(__file__).resolve().parents[1] / "ui" / "app.py"
+    at = AppTest.from_file(str(ui_path), default_timeout=15).run()
+    assert not at.error
+    at.button(key="sl_zoom_in").click().run()
+    assert at.session_state["sl_code_font_size"] == 16
+    at.button(key="sl_zoom_out").click().run()
+    assert at.session_state["sl_code_font_size"] == 14

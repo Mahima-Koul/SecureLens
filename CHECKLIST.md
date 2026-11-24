@@ -42,6 +42,13 @@
 - [x] Add genuine SQL injection regression test to `sqli_app` (`test_unsafe_lookup_treats_injection_text_as_data`); track remediated tests via `RegressionResult.fixed_tests`.
 - [x] Acceptance: 44 unit tests pass; sample tests demonstrate expected failure on unpatched code and pass on patched copy; duplicate application on rerun prevented.
 
+## M9 — Java Semgrep* 9-stage workflow, GitHub import, and verification
+- [x] Add GitHub HTTPS repository import, multi-branch cloning/checkout, and filtered workspace explorer (`securelens/repo_manager.py`).
+- [x] Integrate 29 enhanced Java Semgrep* rules (`semgreph_data/semgrep_yaml_files/`), CWE extraction, and cross-platform `semgrep` resolution (`securelens/scanner.py`).
+- [x] Add Java method/import context extraction (`securelens/context.py`), evidence-grounded 3-way triage (`securelens/triage.py`), and `no_tests` -> `INCOMPLETE` safety policy (`securelens/regression.py`, `securelens/report.py`).
+- [x] Polish Streamlit UI (folder tree explorer, code viewer zoom/line highlighting, clean dark theme) and populate `.cache/llm/` for all 4 Java samples (`cmdi_java_app`, `xxe_java_app`, `deser_java_app`, `path_ssrf_java_app`).
+- [x] Acceptance: 52 unit tests and all 4 Java sample suites pass; offline evaluation (`4/4` complete, `13/0/0` cache hits/misses/API) and end-to-end GitHub repo import verified.
+
 ## Final review
 - [x] Final security and regression review; patch isolation and conservative failure states documented and checked.
 - [x] README setup and CLI/UI/evaluation demo commands reviewed against the installed project environment.
