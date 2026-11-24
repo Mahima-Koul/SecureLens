@@ -22,8 +22,21 @@ def finalize_report(report: PipelineReport) -> PipelineReport:
     elif report.confirmed:
         reasons.append("Confirmed vulnerabilities remain without a completed patched rescan.")
 
+    no_tests_executed = (
+        report.regression is not None
+        and (
+            getattr(report.regression.original, "status", "ran") in {"no_tests", "unavailable"}
+            or getattr(report.regression.patched, "status", "ran") in {"no_tests", "unavailable"}
+        )
+    )
+
     if reasons:
         report.final_status = "RISKY"
+    elif no_tests_executed:
+        report.final_status = "INCOMPLETE"
+        reasons.append(
+            "No compatible regression test suite was executed; absence of tests is not treated as proof that the code is safe."
+        )
     elif report.errors or report.diff is None or report.regression is None:
         report.final_status = "INCOMPLETE"
         reasons.append("A required pipeline stage did not complete or produced insufficient evidence.")
@@ -40,16 +53,22 @@ def render_summary(report: PipelineReport) -> str:
         f"Project: {report.project}",
         f"Status: {report.final_status}",
         f"Findings: {len(report.findings)} total, {len(report.confirmed)} confirmed, "
-        f"{len(report.dismissed)} dismissed, {len(report.unresolved)} unresolved",
+        f"{len(report.dismissed)} dismissed, {len(report.uncertain)} uncertain, {len(report.unresolved)} unresolved",
     ]
     if report.diff:
         lines.append(f"After patch: {len(report.diff.fixed)} fixed, {len(report.diff.remaining)} remaining, {len(report.diff.new)} new")
     if report.regression:
-        lines.append(f"Tests: {report.regression.original.passed} passed before, "
-                     f"{report.regression.patched.passed} passed after, "
-                     f"{len(report.regression.newly_failing)} newly failing")
-        if getattr(report.regression, "fixed_tests", None):
-            lines.append(f"Remediated tests: {len(report.regression.fixed_tests)} fixed ({', '.join(report.regression.fixed_tests)})")
+        orig_status = getattr(report.regression.original, "status", "ran")
+        if orig_status == "no_tests":
+            lines.append("Tests: no compatible test suite found in repository")
+        else:
+            lines.append(
+                f"Tests: {report.regression.original.passed} passed before, "
+                f"{report.regression.patched.passed} passed after, "
+                f"{len(report.regression.newly_failing)} newly failing"
+            )
+            if getattr(report.regression, "fixed_tests", None):
+                lines.append(f"Remediated tests: {len(report.regression.fixed_tests)} fixed ({', '.join(report.regression.fixed_tests)})")
     lines.extend(f"Reason: {reason}" for reason in report.status_reasons)
     lines.extend(f"Error: {error}" for error in report.errors)
     return "\n".join(lines)

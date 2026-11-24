@@ -1,0 +1,16 @@
+{
+  "expected_alerts": [
+    {
+      "rule_id_or_category": "documentbuilderfactory-copy",
+      "line_hint": 17,
+      "is_real": true,
+      "note": "DocumentBuilderFactory is instantiated without disabling DOCTYPE declarations or external entities."
+    },
+    {
+      "rule_id_or_category": "jax-resteasy-endpoint",
+      "line_hint": 22,
+      "is_real": false,
+      "note": "Read-only /health endpoint returns a constant status string and does not mutate state."
+    }
+  ]
+}

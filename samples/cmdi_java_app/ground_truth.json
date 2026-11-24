@@ -1,0 +1,16 @@
+{
+  "expected_alerts": [
+    {
+      "rule_id_or_category": "command-injection-formatted-runtime-call-copy",
+      "line_hint": 15,
+      "is_real": true,
+      "note": "Untrusted host string is concatenated directly into Runtime.getRuntime().exec()."
+    },
+    {
+      "rule_id_or_category": "java.util.random-too-predictable",
+      "line_hint": 26,
+      "is_real": false,
+      "note": "java.util.Random is used strictly for deterministic UI banner rotation, not security."
+    }
+  ]
+}

@@ -1,18 +1,27 @@
-"""Validate sample ground-truth entries and source line hints."""
+"""Validate sample ground-truth entries and source line hints for Java and Python samples."""
 
 import json
 from pathlib import Path
 
+EXPECTED_SAMPLES = {
+    "cmdi_java_app",
+    "xxe_java_app",
+    "deser_java_app",
+    "path_ssrf_java_app",
+    "sqli_app",
+    "cmdi_app",
+    "secrets_deser_app",
+    "wow_app",
+}
+
 
 def test_each_sample_has_valid_ground_truth():
     sample_dirs = sorted(Path("samples").iterdir())
-    assert {path.name for path in sample_dirs if path.is_dir()} == {
-        "sqli_app", "cmdi_app", "secrets_deser_app", "wow_app"
-    }
+    assert {path.name for path in sample_dirs if path.is_dir()} == EXPECTED_SAMPLES
     for sample in sample_dirs:
         if not sample.is_dir():
             continue
-        app = sample / "app.py"
+        app = (sample / "App.java") if (sample / "App.java").is_file() else (sample / "app.py")
         tests = sample / "tests" / "test_app.py"
         ground_truth = sample / "ground_truth.json"
         assert app.is_file() and tests.is_file() and ground_truth.is_file()

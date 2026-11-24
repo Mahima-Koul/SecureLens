@@ -18,7 +18,11 @@ def run_tests(project_dir: str | Path, *, timeout: int | None = None) -> TestRes
     """Run `python -m pytest` in the requested project and parse JUnit XML."""
     root = Path(project_dir).resolve()
     if not root.is_dir():
-        return TestResult(errors=1, raw_output_tail=f"Project directory does not exist: {root}")
+        return TestResult(
+            errors=1,
+            status="unavailable",
+            raw_output_tail=f"Project directory does not exist: {root}",
+        )
     limit = timeout or load_settings().tool_timeout
     try:
         with tempfile.TemporaryDirectory(prefix="securelens-tests-") as temp_dir:
@@ -36,10 +40,20 @@ def run_tests(project_dir: str | Path, *, timeout: int | None = None) -> TestRes
                 timeout=limit, check=False,
             )
             output = (completed.stdout or "") + (completed.stderr or "")
+            # Pytest returncode 5 means no tests were collected
+            if completed.returncode == 5:
+                return TestResult(
+                    passed=0,
+                    failed=0,
+                    errors=0,
+                    status="no_tests",
+                    raw_output_tail=_tail(output) or "No compatible tests were collected in this repository.",
+                )
             if xml_path.is_file():
                 result = _parse_junit(xml_path, output)
                 if completed.returncode and not (result.failed or result.errors):
                     result.errors = 1
+                    result.status = "unavailable"
                     result.raw_output_tail = _tail(output) or f"pytest exited with status {completed.returncode}"
                 return result
             return _fallback_parse(output, completed.returncode)
@@ -47,9 +61,17 @@ def run_tests(project_dir: str | Path, *, timeout: int | None = None) -> TestRes
         output = (exc.stdout or "") + (exc.stderr or "")
         if isinstance(output, bytes):
             output = output.decode("utf-8", errors="replace")
-        return TestResult(errors=1, raw_output_tail=f"pytest exceeded the {limit}s timeout.\n{_tail(output)}")
+        return TestResult(
+            errors=1,
+            status="unavailable",
+            raw_output_tail=f"pytest exceeded the {limit}s timeout.\n{_tail(output)}",
+        )
     except Exception as exc:
-        return TestResult(errors=1, raw_output_tail=f"pytest could not run ({type(exc).__name__}).")
+        return TestResult(
+            errors=1,
+            status="unavailable",
+            raw_output_tail=f"pytest could not run ({type(exc).__name__}).",
+        )
 
 
 def compare_tests(original: TestResult, patched: TestResult) -> RegressionResult:
@@ -85,24 +107,41 @@ def _parse_junit(path: Path, output: str) -> TestResult:
             failed_tests.append(identity)
         elif skipped is None:
             passed += 1
-    # Collection and session errors may be reported on the suites, without testcase nodes.
-    suite_errors = max((int(suite.get("errors", "0")) for suite in root.iter()
-                        if suite.tag in {"testsuite", "testsuites"}), default=0)
+    suite_errors = max(
+        (int(suite.get("errors", "0")) for suite in root.iter() if suite.tag in {"testsuite", "testsuites"}),
+        default=0,
+    )
     if suite_errors and errors == 0:
         errors = suite_errors
         failed_tests.append("pytest::collection-or-session-error")
-    return TestResult(passed=passed, failed=failed, errors=errors,
-                      failed_tests=failed_tests, raw_output_tail=_tail(output))
+    status = "no_tests" if (passed == 0 and failed == 0 and errors == 0 and not cases) else "ran"
+    return TestResult(
+        passed=passed,
+        failed=failed,
+        errors=errors,
+        failed_tests=failed_tests,
+        raw_output_tail=_tail(output),
+        status=status,
+    )
 
 
 def _fallback_parse(output: str, return_code: int) -> TestResult:
     """Produce useful counts when pytest failed before writing JUnit XML."""
+    if return_code == 5 or "no tests ran" in output.lower() or "collected 0 items" in output.lower():
+        return TestResult(status="no_tests", raw_output_tail=_tail(output) or "No tests collected.")
     match = re.search(r"(?P<passed>\d+) passed(?:, (?P<failed>\d+) failed)?(?:, (?P<errors>\d+) error)?", output)
     if not match:
-        return TestResult(errors=1, raw_output_tail=_tail(output) or f"pytest exited with status {return_code} without JUnit results")
+        return TestResult(
+            errors=1,
+            status="unavailable",
+            raw_output_tail=_tail(output) or f"pytest exited with status {return_code} without JUnit results",
+        )
     return TestResult(
-        passed=int(match.group("passed") or 0), failed=int(match.group("failed") or 0),
-        errors=int(match.group("errors") or 0), raw_output_tail=_tail(output),
+        passed=int(match.group("passed") or 0),
+        failed=int(match.group("failed") or 0),
+        errors=int(match.group("errors") or 0),
+        raw_output_tail=_tail(output),
+        status="ran",
     )
 
 

@@ -15,12 +15,12 @@ if str(ROOT) not in sys.path:
 from securelens.config import load_settings
 from securelens.pipeline import run_pipeline
 
-SAMPLES = ("sqli_app", "cmdi_app", "secrets_deser_app", "wow_app")
+SAMPLES = ("cmdi_java_app", "xxe_java_app", "deser_java_app", "path_ssrf_java_app")
 CATEGORY_RULES = {
     "sql-injection": {"b608"},
-    "command-injection": {"b602", "b603", "b605"},
+    "command-injection": {"b602", "b603", "b605", "command-injection-formatted-runtime-call-copy"},
     "hardcoded-secret": {"b105", "b106", "b107"},
-    "unsafe-deserialization": {"b301", "b302", "b303"},
+    "unsafe-deserialization": {"b301", "b302", "b303", "use-snakeyaml-constructor-copy", "xstream-deserialization"},
     "weak-hash": {"b324", "b505"},
     "unsafe-evaluation": {"b307"},
 }
@@ -29,11 +29,16 @@ CATEGORY_RULES = {
 def _matching_finding(alert: dict[str, Any], findings: list[Any]) -> Any | None:
     needle = str(alert.get("rule_id_or_category", "")).lower().replace("_", "-")
     rules = CATEGORY_RULES.get(needle, set())
-    candidates = [finding for finding in findings if needle and (
-        needle in finding.rule_id.lower().replace("_", "-")
-        or needle in finding.message.lower().replace("_", "-")
-        or finding.rule_id.lower() in rules
-    )]
+    candidates = [
+        finding
+        for finding in findings
+        if needle
+        and (
+            needle in finding.rule_id.lower().replace("_", "-")
+            or needle in finding.message.lower().replace("_", "-")
+            or finding.rule_id.lower() in rules
+        )
+    ]
     hint = alert.get("line_hint")
     if hint is not None:
         nearby = [item for item in candidates if abs(item.line - int(hint)) <= 8]
@@ -54,13 +59,18 @@ def evaluate_sample(name: str, *, offline: bool) -> dict[str, Any]:
     false = [(item, finding) for item, finding in matched if not item.get("is_real")]
     verdict_by_id = {item.finding_id: item for item in report.verdicts}
     complete = (
-        report.final_status != "INCOMPLETE" and report.diff is not None and report.regression is not None
-        and report.regression.original.errors == 0 and report.regression.patched.errors == 0
+        report.final_status != "INCOMPLETE"
+        and report.diff is not None
+        and report.regression is not None
+        and report.regression.original.errors == 0
+        and report.regression.patched.errors == 0
         and not any("Semgrep failed" in error or "Bandit failed" in error for error in report.errors)
     )
     false_removed = sum(
-        finding is not None and finding.id in verdict_by_id
-        and finding in report.dismissed and finding not in report.unresolved
+        finding is not None
+        and finding.id in verdict_by_id
+        and finding in report.dismissed
+        and finding not in report.unresolved
         for _, finding in false
     )
     real_dismissed = sum(
@@ -98,10 +108,13 @@ def evaluate_sample(name: str, *, offline: bool) -> dict[str, Any]:
 
 def render_markdown(result: dict[str, Any]) -> str:
     lines = [
-        "# SecureLens evaluation results", "",
+        "# SecureLens evaluation results",
+        "",
         f"Generated: {result['generated_at']}",
-        f"Mode: {'offline/cache only' if result['offline'] else 'configured API/cache'}", "",
-        "Incomplete runs use `null` for unavailable outcome metrics; this is not a zero.", "",
+        f"Mode: {'offline/cache only' if result['offline'] else 'configured API/cache'}",
+        "",
+        "Incomplete runs use `null` for unavailable outcome metrics; this is not a zero.",
+        "",
         "| Sample | Status | Alerts | FP removed | Real dismissed | Fixed | Remaining | New | Tests before/after | Seconds | LLM hits/misses/API |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
@@ -110,8 +123,14 @@ def render_markdown(result: dict[str, Any]) -> str:
         if row["tests_before"] is not None:
             test_counts = f"{row['tests_before']['passed']}/{row['tests_after']['passed']} passed"
         llm = row["llm"]
-        fields = [row["alerts_before_filtering"], row["false_positives_removed"],
-                  row["real_vulnerabilities_dismissed"], row["fixed"], row["remaining"], row["new"]]
+        fields = [
+            row["alerts_before_filtering"],
+            row["false_positives_removed"],
+            row["real_vulnerabilities_dismissed"],
+            row["fixed"],
+            row["remaining"],
+            row["new"],
+        ]
         fmt = lambda value: "unknown" if value is None else str(value)
         lines.append(
             f"| {row['sample']} | {row['status']} | {fmt(fields[0])} | {fmt(fields[1])} | "
@@ -132,7 +151,9 @@ def render_markdown(result: dict[str, Any]) -> str:
     lines.extend(["", "## Diagnostics", ""])
     for row in result["samples"]:
         lines.append(f"### {row['sample']} — {row['status']}")
-        lines.append(f"Ground truth matched {row['ground_truth']['matched_alerts']}/{row['ground_truth']['expected_alerts']} expected alerts.")
+        lines.append(
+            f"Ground truth matched {row['ground_truth']['matched_alerts']}/{row['ground_truth']['expected_alerts']} expected alerts."
+        )
         if row["errors"]:
             lines.extend(f"- {error}" for error in row["errors"])
         else:
@@ -144,15 +165,22 @@ def render_markdown(result: dict[str, Any]) -> str:
 def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate measured values while keeping any partially unavailable metric unknown."""
     metric_keys = (
-        "alerts_before_filtering", "false_positives_removed", "real_vulnerabilities_dismissed",
-        "alerts_after_filtering", "fixed", "remaining", "new",
+        "alerts_before_filtering",
+        "false_positives_removed",
+        "real_vulnerabilities_dismissed",
+        "alerts_after_filtering",
+        "fixed",
+        "remaining",
+        "new",
     )
     aggregate: dict[str, Any] = {
         "sample_count": len(rows),
         "completed_samples": sum(row["complete"] for row in rows),
         "duration_seconds": round(sum(row["duration_seconds"] for row in rows), 3),
-        "llm": {key: sum(row["llm"][key] for row in rows)
-                for key in ("cache_hits", "cache_misses", "fresh_api_calls")},
+        "llm": {
+            key: sum(row["llm"][key] for row in rows)
+            for key in ("cache_hits", "cache_misses", "fresh_api_calls")
+        },
     }
     for key in metric_keys:
         values = [row[key] for row in rows]

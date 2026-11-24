@@ -13,6 +13,8 @@ from .llm import LLMClient
 from .models import Finding, Patch
 from .prompts import PATCH_SYSTEM_PROMPT
 
+SUPPORTED_PATCH_SUFFIXES = {".py", ".java"}
+
 
 class PatchResponse(BaseModel):
     """Structured complete replacement file returned by the model."""
@@ -37,8 +39,8 @@ def generate_patch(
         relative = source_path.relative_to(root)
     except ValueError as exc:
         raise ValueError("Patch target is outside the selected project") from exc
-    if not source_path.is_file() or source_path.suffix != ".py":
-        raise ValueError("Patch target must be an existing Python source file")
+    if not source_path.is_file() or source_path.suffix.lower() not in SUPPORTED_PATCH_SUFFIXES:
+        raise ValueError("Patch target must be an existing Python or Java source file")
     for finding in confirmed_findings_for_that_file:
         if Path(finding.file).as_posix() != relative.as_posix():
             raise ValueError("All confirmed findings must belong to the requested file")
@@ -47,7 +49,7 @@ def generate_patch(
         "file": relative.as_posix(),
         "complete_original_file": original,
         "confirmed_findings": [
-            {"id": item.id, "rule_id": item.rule_id, "line": item.line, "message": item.message}
+            {"id": item.id, "rule_id": item.rule_id, "line": item.line, "cwe": item.cwe, "message": item.message}
             for item in confirmed_findings_for_that_file
         ],
     }
@@ -122,8 +124,8 @@ def _validate_patches(root: Path, patches: list[Patch]) -> None:
             raise ValueError(f"Multiple patches target the same file: {patch.file}")
         seen.add(patch.file)
         target = _safe_target(root, patch.file)
-        if not target.is_file() or target.suffix != ".py":
-            raise ValueError(f"Patch target is not an existing Python file: {patch.file}")
+        if not target.is_file() or target.suffix.lower() not in SUPPORTED_PATCH_SUFFIXES:
+            raise ValueError(f"Patch target is not an existing Python or Java file: {patch.file}")
         if target.read_text(encoding="utf-8") != patch.original_code:
             raise ValueError(f"Patch source changed since generation: {patch.file}")
 
@@ -140,5 +142,5 @@ def _safe_target(root: Path, relative_path: str) -> Path:
 
 def _copy_ignore(directory: str, names: list[str]) -> set[str]:
     """Skip repository metadata, caches, virtual environments, and prior copies."""
-    ignored = {".git", ".venv", "venv", "__pycache__", ".cache", "workdir"}
+    ignored = {".git", ".venv", "venv", "__pycache__", ".cache", "workdir", "target", "build"}
     return {name for name in names if name in ignored or name.endswith("_patched")}

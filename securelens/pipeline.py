@@ -6,7 +6,6 @@ import time
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 from .config import load_settings
 from .context import extract_context
@@ -21,15 +20,17 @@ from .triage import is_confirmed, triage
 
 
 def scan_stage(project_dir: str | Path) -> tuple[list[Finding], list[str]]:
-    """Run both configured static scanners and retain all diagnostics."""
+    """Run configured static scanners (Semgrep* / Bandit) and retain all diagnostics."""
     return scan_project(project_dir)
 
 
 def triage_stage(
-    findings: list[Finding], project_dir: str | Path, *,
+    findings: list[Finding],
+    project_dir: str | Path,
+    *,
     llm_client: LLMClient | None = None,
 ) -> tuple[list[Verdict], list[Finding], list[Finding], list[Finding], list[str]]:
-    """Extract context and triage each finding, confirming failures conservatively."""
+    """Extract context and triage each finding, confirming uncertain or failed calls conservatively."""
     verdicts: list[Verdict] = []
     confirmed: list[Finding] = []
     dismissed: list[Finding] = []
@@ -42,8 +43,14 @@ def triage_stage(
             verdict = triage(finding, context, llm_client=llm_client, threshold=threshold)
         except Exception as exc:
             verdict = Verdict(
-                finding_id=finding.id, is_true_positive=True, confidence=0,
+                finding_id=finding.id,
+                is_true_positive=True,
+                status="uncertain",
+                confidence=0,
                 reason=f"Triage was unresolved ({type(exc).__name__}); the finding is conservatively confirmed.",
+                evidence_line=finding.line,
+                evidence_snippet=(finding.snippet.splitlines()[0].strip() if finding.snippet.strip() else ""),
+                grounding_verified=False,
             )
         verdicts.append(verdict)
         if verdict.reason.startswith("Triage was unresolved"):
@@ -127,10 +134,12 @@ def fix_stage(
 
 
 def diff_stage(
-    before: list[Finding], patched_project: str | Path, *,
+    before: list[Finding],
+    patched_project: str | Path,
+    *,
     original_project: str | Path | None = None,
 ) -> tuple[DiffResult | None, list[str]]:
-    """Rescan a patched project and classify fixed, remaining, and new findings."""
+    """Rescan a patched project using the same scanner configuration and classify fixed, remaining, and new findings."""
     findings, errors = scan_project(patched_project)
     if errors and not findings:
         return None, errors
@@ -141,8 +150,11 @@ def diff_stage(
 
 
 def regression_stage(
-    original_project: str | Path, patched_project: str | Path, *,
-    baseline: TestResult | None = None, timeout: int | None = None,
+    original_project: str | Path,
+    patched_project: str | Path,
+    *,
+    baseline: TestResult | None = None,
+    timeout: int | None = None,
 ) -> tuple[RegressionResult, list[str]]:
     """Compare baseline and patched tests by failing test identity."""
     original = baseline or run_tests(original_project, timeout=timeout)
@@ -180,6 +192,11 @@ def run_pipeline(
     started = time.perf_counter()
     (report.verdicts, report.confirmed, report.dismissed,
      report.unresolved, errors) = triage_stage(report.findings, root, llm_client=client)
+    verdict_by_id = {v.finding_id: v for v in report.verdicts}
+    report.uncertain = [
+        f for f in report.findings
+        if f.id in verdict_by_id and verdict_by_id[f.id].status == "uncertain"
+    ]
     report.errors.extend(errors)
     timings["triage"] = time.perf_counter() - started
 
@@ -192,7 +209,11 @@ def run_pipeline(
     patched_dir: Path | None = None
     if do_fix:
         started = time.perf_counter()
-        run_workdir = Path(workdir) if workdir is not None else Path.cwd() / "workdir" / f"run_{root.name}_{uuid.uuid4().hex[:10]}"
+        run_workdir = (
+            Path(workdir)
+            if workdir is not None
+            else Path.cwd() / "workdir" / f"run_{root.name}_{uuid.uuid4().hex[:10]}"
+        )
         report.patches, patched_dir, errors = fix_stage(
             root, report.confirmed, llm_client=client, workdir=run_workdir, auto_approve=auto_approve,
         )
@@ -222,10 +243,9 @@ def run_pipeline(
 
 
 def _attach_function_context(findings: list[Finding], project_dir: str | Path) -> None:
-    """Populate function names so fingerprints match across scan stages."""
+    """Populate function/method names so fingerprints match across scan stages."""
     for finding in findings:
         try:
             extract_context(finding, project_dir)
         except (OSError, ValueError):
-            # Missing context must not erase a scanner finding; it remains reportable.
             continue

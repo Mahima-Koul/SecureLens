@@ -1,0 +1,22 @@
+{
+  "expected_alerts": [
+    {
+      "rule_id_or_category": "jax-rs-path-traversal-copy",
+      "line_hint": 15,
+      "is_real": true,
+      "note": "User-supplied fileName is passed directly into new File('/var/app/reports', fileName) without stripping path traversal sequences."
+    },
+    {
+      "rule_id_or_category": "owasp.java.ssrf.java.net.url-copy",
+      "line_hint": 21,
+      "is_real": true,
+      "note": "Caller-controlled endpointUrl is passed directly into new URL(endpointUrl) without protocol/host allowlist validation."
+    },
+    {
+      "rule_id_or_category": "information-exposure",
+      "line_hint": 25,
+      "is_real": false,
+      "note": "getSearchUrl() returns a constant public documentation route and exposes no credentials."
+    }
+  ]
+}

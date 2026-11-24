@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Finding(BaseModel):
@@ -19,6 +19,7 @@ class Finding(BaseModel):
     message: str
     snippet: str
     function_name: str | None = None
+    cwe: str | None = None
     fingerprint: str
 
 
@@ -27,8 +28,12 @@ class Verdict(BaseModel):
 
     finding_id: str
     is_true_positive: bool
+    status: Literal["confirmed", "dismissed", "uncertain"] = "confirmed"
     confidence: float = Field(ge=0, le=1)
     reason: str
+    evidence_line: int | None = None
+    evidence_snippet: str | None = None
+    grounding_verified: bool = True
 
 
 class Patch(BaseModel):
@@ -52,7 +57,7 @@ class DiffResult(BaseModel):
 
 
 class TestResult(BaseModel):
-    """Pytest result summary."""
+    """Test execution result summary."""
 
     __test__ = False
 
@@ -61,6 +66,7 @@ class TestResult(BaseModel):
     errors: int = 0
     failed_tests: list[str] = Field(default_factory=list)
     raw_output_tail: str = ""
+    status: Literal["ran", "no_tests", "unavailable"] = "ran"
 
 
 class RegressionResult(BaseModel):
@@ -83,6 +89,7 @@ class PipelineReport(BaseModel):
     verdicts: list[Verdict] = Field(default_factory=list)
     confirmed: list[Finding] = Field(default_factory=list)
     dismissed: list[Finding] = Field(default_factory=list)
+    uncertain: list[Finding] = Field(default_factory=list)
     unresolved: list[Finding] = Field(default_factory=list)
     patches: list[Patch] = Field(default_factory=list)
     diff: DiffResult | None = None

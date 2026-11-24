@@ -1,7 +1,8 @@
-"""Run Semgrep and Bandit and normalize their JSON findings."""
+"""Run Semgrep (including Semgrep* enhanced Java rules) and Bandit, normalizing JSON findings."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -14,7 +15,9 @@ from typing import Any
 from .config import load_settings
 from .models import Finding
 
-IGNORED_PARTS = {"tests", "test", ".venv", "venv", "__pycache__", ".cache", "workdir"}
+IGNORED_PARTS = {"tests", "test", ".venv", "venv", "__pycache__", ".cache", "workdir", ".git", "target", "build"}
+SUPPORTED_SUFFIXES = {".py", ".java"}
+SEMGREP_STAR_DIR = Path(__file__).resolve().parents[1] / "semgreph_data" / "semgrep_yaml_files"
 
 
 def scan_project(project_dir: str | Path) -> tuple[list[Finding], list[str]]:
@@ -25,16 +28,24 @@ def scan_project(project_dir: str | Path) -> tuple[list[Finding], list[str]]:
     settings = load_settings()
     errors: list[str] = []
     raw: list[Finding] = []
-    semgrep, semgrep_error = _run_semgrep(root, settings.tool_timeout, settings.semgrep_config)
+
+    has_java = _has_language_files(root, ".java")
+    has_python = _has_language_files(root, ".py")
+
+    semgrep, semgrep_error = _run_semgrep(root, settings.tool_timeout, settings.semgrep_config, has_java=has_java)
     if semgrep_error:
         errors.append(semgrep_error)
     else:
         raw.extend(_normalize_semgrep(semgrep, root))
-    bandit, bandit_error = _run_bandit(root, settings.tool_timeout)
-    if bandit_error:
-        errors.append(bandit_error)
-    else:
-        raw.extend(_normalize_bandit(bandit, root))
+
+    # Run Bandit only for applicable Python projects
+    if has_python or not has_java:
+        bandit, bandit_error = _run_bandit(root, settings.tool_timeout)
+        if bandit_error:
+            errors.append(bandit_error)
+        else:
+            raw.extend(_normalize_bandit(bandit, root))
+
     return _deduplicate(raw), errors
 
 
@@ -46,9 +57,28 @@ def run_scan(project_dir: str | Path) -> list[Finding]:
     return findings
 
 
-def _run_semgrep(root: Path, timeout: int, config_override: str | None) -> tuple[dict[str, Any] | None, str | None]:
-    """Run Semgrep, retrying its default registry config with auto on fetch failure."""
-    config = config_override or "p/python"
+def _has_language_files(root: Path, suffix: str) -> bool:
+    """Check whether the project contains non-test production source files with the given suffix."""
+    for candidate in root.rglob(f"*{suffix}"):
+        if _relative_file(str(candidate), root) is not None:
+            return True
+    return False
+
+
+def _resolve_semgrep_config(config_override: str | None, *, has_java: bool) -> str:
+    """Select the Semgrep* enhanced ruleset for Java projects when no explicit override is set."""
+    if config_override:
+        return config_override
+    if has_java and SEMGREP_STAR_DIR.is_dir():
+        return str(SEMGREP_STAR_DIR)
+    return "p/python"
+
+
+def _run_semgrep(
+    root: Path, timeout: int, config_override: str | None, *, has_java: bool = False
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Run Semgrep (using Semgrep* enhanced rules for Java or configured ruleset)."""
+    config = _resolve_semgrep_config(config_override, has_java=has_java)
     semgrep_path = shutil.which("semgrep") or str(Path(sys.executable).with_name("semgrep.exe"))
     base = [semgrep_path, "scan", "--json", "--quiet", "--no-git-ignore", "--metrics", "off", "--config", config]
     excludes = _excludes(root)
@@ -64,10 +94,13 @@ def _run_semgrep(root: Path, timeout: int, config_override: str | None) -> tuple
         except json.JSONDecodeError:
             return None, "Semgrep returned invalid JSON."
     diagnostic = (result.stderr or result.stdout or "").strip()[-1000:]
-    if not config_override and any(token in diagnostic.lower() for token in ("network", "fetch", "registry", "resolve")):
+    if not config_override and not has_java and any(token in diagnostic.lower() for token in ("network", "fetch", "registry", "resolve")):
         warnings.warn("Semgrep p/python registry config could not be fetched; retrying with --config auto.", RuntimeWarning)
         try:
-            fallback = subprocess.run([semgrep_path, "scan", "--json", "--quiet", "--no-git-ignore", "--metrics", "off", "--config", "auto", *excludes, str(root)], capture_output=True, text=True, timeout=timeout)
+            fallback = subprocess.run(
+                [semgrep_path, "scan", "--json", "--quiet", "--no-git-ignore", "--metrics", "off", "--config", "auto", *excludes, str(root)],
+                capture_output=True, text=True, timeout=timeout,
+            )
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
             return None, f"Semgrep auto fallback failed: {type(exc).__name__}."
         if fallback.returncode == 0:
@@ -104,7 +137,7 @@ def _excludes(root: Path) -> list[str]:
         excludes.extend(["--exclude", name])
     if not root.name.endswith("_patched"):
         excludes.extend(["--exclude", "*_patched"])
-    excludes.extend(["--exclude", "test_*.py", "--exclude", "*_test.py"])
+    excludes.extend(["--exclude", "test_*.py", "--exclude", "*_test.py", "--exclude", "*Test.java", "--exclude", "*Tests.java"])
     return excludes
 
 
@@ -119,9 +152,11 @@ def _relative_file(path_value: str, root: Path) -> str | None:
         return None
     if any(part in IGNORED_PARTS or part.endswith("_patched") for part in relative.parts):
         return None
-    if relative.suffix.lower() != ".py":
+    if relative.suffix.lower() not in SUPPORTED_SUFFIXES:
         return None
     if relative.name.startswith("test_") or relative.name.endswith("_test.py"):
+        return None
+    if relative.name.endswith("Test.java") or relative.name.endswith("Tests.java"):
         return None
     return relative.as_posix()
 
@@ -137,8 +172,47 @@ def _severity(value: str | None) -> str:
 
 
 def _stable_id(tool: str, rule: str, file: str, line: int, message: str) -> str:
-    import hashlib
     return hashlib.sha1(f"{tool}\0{rule}\0{file}\0{line}\0{message}".encode()).hexdigest()
+
+
+def _extract_semgrep_cwe(extra: dict[str, Any], rule: str, message: str) -> str | None:
+    """Extract normalized CWE identifier from Semgrep metadata or rule/message text."""
+    metadata = extra.get("metadata") or {}
+    raw_cwe = metadata.get("cwe")
+    if isinstance(raw_cwe, list):
+        for item in raw_cwe:
+            match = re.search(r"CWE[-_ ]?(\d+)", str(item), re.IGNORECASE)
+            if match:
+                return str(item).strip()
+        if raw_cwe:
+            return str(raw_cwe[0]).strip()
+    elif isinstance(raw_cwe, str) and raw_cwe.strip():
+        return raw_cwe.strip()
+    match = re.search(r"CWE[-_ ]?(\d+)", f"{rule} {message}", re.IGNORECASE)
+    return f"CWE-{match.group(1)}" if match else None
+
+
+def _extract_bandit_cwe(item: dict[str, Any], rule: str, message: str) -> str | None:
+    """Extract CWE identifier from Bandit JSON output or fallback rule mapping."""
+    issue_cwe = item.get("issue_cwe")
+    if isinstance(issue_cwe, dict) and issue_cwe.get("id"):
+        return f"CWE-{issue_cwe['id']}"
+    match = re.search(r"CWE[-_ ]?(\d+)", f"{rule} {message}", re.IGNORECASE)
+    if match:
+        return f"CWE-{match.group(1)}"
+    bandit_cwe_map = {
+        "B105": "CWE-259: Use of Hard-coded Password",
+        "B106": "CWE-259: Use of Hard-coded Password",
+        "B107": "CWE-259: Use of Hard-coded Password",
+        "B301": "CWE-502: Deserialization of Untrusted Data",
+        "B307": "CWE-78: Improper Neutralization of Special Elements (eval)",
+        "B324": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm",
+        "B602": "CWE-78: OS Command Injection",
+        "B603": "CWE-78: OS Command Injection",
+        "B605": "CWE-78: OS Command Injection",
+        "B608": "CWE-89: SQL Injection",
+    }
+    return bandit_cwe_map.get(rule.upper())
 
 
 def _normalize_semgrep(data: dict[str, Any], root: Path) -> list[Finding]:
@@ -149,13 +223,31 @@ def _normalize_semgrep(data: dict[str, Any], root: Path) -> list[Finding]:
             continue
         extra = item.get("extra", {})
         rule = str(item.get("check_id", "unknown"))
+        if "semgrep_yaml_files." in rule:
+            rule = rule.split("semgrep_yaml_files.", 1)[1]
+        elif "semgreph_data." in rule:
+            rule = rule.split("semgreph_data.", 1)[1]
         line = int((item.get("start") or {}).get("line", 1))
         message = str(extra.get("message", rule))
         severity = _severity(extra.get("severity"))
         fallback_snippet = str(extra.get("lines", ""))
         end_line = int((item.get("end") or {}).get("line", line))
         snippet = _source_snippet(root, path, line, end_line) or fallback_snippet
-        findings.append(Finding(id=_stable_id("semgrep", rule, path, line, message), tool="semgrep", rule_id=rule, file=path, line=line, severity=severity, message=message, snippet=snippet, fingerprint=_fingerprint(rule, snippet)))
+        cwe = _extract_semgrep_cwe(extra, rule, message)
+        findings.append(
+            Finding(
+                id=_stable_id("semgrep", rule, path, line, message),
+                tool="semgrep",
+                rule_id=rule,
+                file=path,
+                line=line,
+                severity=severity,
+                message=message,
+                snippet=snippet,
+                cwe=cwe,
+                fingerprint=_fingerprint(rule, snippet),
+            )
+        )
     return findings
 
 
@@ -170,12 +262,25 @@ def _normalize_bandit(data: dict[str, Any], root: Path) -> list[Finding]:
         message = str(item.get("issue_text", rule))
         severity = _severity(item.get("issue_severity"))
         snippet = str(item.get("code", "")).strip()
-        findings.append(Finding(id=_stable_id("bandit", rule, path, line, message), tool="bandit", rule_id=rule, file=path, line=line, severity=severity, message=message, snippet=snippet, fingerprint=_fingerprint(rule, snippet)))
+        cwe = _extract_bandit_cwe(item, rule, message)
+        findings.append(
+            Finding(
+                id=_stable_id("bandit", rule, path, line, message),
+                tool="bandit",
+                rule_id=rule,
+                file=path,
+                line=line,
+                severity=severity,
+                message=message,
+                snippet=snippet,
+                cwe=cwe,
+                fingerprint=_fingerprint(rule, snippet),
+            )
+        )
     return findings
 
 
 def _fingerprint(rule: str, snippet: str) -> str:
-    import hashlib
     normalized = re.sub(r"\s+", " ", snippet).strip()
     return hashlib.sha1(f"{rule}{normalized}".encode()).hexdigest()
 
@@ -200,8 +305,9 @@ def _category(rule: str, message: str) -> str:
         return f"CWE-{match.group(1)}"
     text = f"{rule} {message}".lower()
     for category, terms in {
-        "injection": ("sql", "shell", "command injection", "subprocess"),
-        "deserialization": ("pickle", "deserializ"),
+        "injection": ("sql", "shell", "command injection", "subprocess", "runtime.exec", "ognl", "jndi", "ldap"),
+        "deserialization": ("pickle", "deserializ", "snakeyaml", "xstream", "objectmapper"),
+        "xxe": ("xxe", "external entity", "documentbuilder", "saxparser", "xmlinputfactory"),
         "secret": ("secret", "password", "api key", "credential"),
         "weak-hash": ("md5", "sha1", "weak hash", "hashlib"),
     }.items():
@@ -211,15 +317,27 @@ def _category(rule: str, message: str) -> str:
 
 
 def _deduplicate(findings: list[Finding]) -> list[Finding]:
-    """Deduplicate overlapping scanner alerts by file, line, and CWE-like category."""
+    """Deduplicate identical same-rule hits and overlapping cross-tool scanner alerts."""
     result: list[Finding] = []
     severity_rank = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
+    seen_exact: set[tuple[str, str, str, int]] = set()
     for item in findings:
+        exact_key = (item.tool, item.rule_id, item.file, item.line)
+        if exact_key in seen_exact:
+            continue
+        seen_exact.add(exact_key)
         category = _category(item.rule_id, item.message)
-        match_index = next((index for index, current in enumerate(result)
-                            if current.tool != item.tool and current.file == item.file
-                            and current.line == item.line
-                            and _category(current.rule_id, current.message) == category), None)
+        match_index = next(
+            (
+                index
+                for index, current in enumerate(result)
+                if current.tool != item.tool
+                and current.file == item.file
+                and current.line == item.line
+                and _category(current.rule_id, current.message) == category
+            ),
+            None,
+        )
         if match_index is None:
             result.append(item)
             continue
@@ -227,6 +345,8 @@ def _deduplicate(findings: list[Finding]) -> list[Finding]:
         chosen = item if severity_rank[item.severity] > severity_rank[current.severity] else current
         other = current if chosen is item else item
         chosen.message = f"{chosen.message} (overlapping {other.tool} alert {other.rule_id}: {other.message})"
+        if not chosen.cwe and other.cwe:
+            chosen.cwe = other.cwe
         chosen.fingerprint = _fingerprint(chosen.rule_id, chosen.snippet)
         result[match_index] = chosen
     return sorted(result, key=lambda finding: (finding.file, finding.line, finding.tool, finding.rule_id))

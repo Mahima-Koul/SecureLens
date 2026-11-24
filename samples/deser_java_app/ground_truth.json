@@ -1,0 +1,16 @@
+{
+  "expected_alerts": [
+    {
+      "rule_id_or_category": "use-snakeyaml-constructor-copy",
+      "line_hint": 14,
+      "is_real": true,
+      "note": "SnakeYAML Yaml() constructor is called without SafeConstructor on untrusted YAML input."
+    },
+    {
+      "rule_id_or_category": "regex-injection",
+      "line_hint": 20,
+      "is_real": false,
+      "note": "Pattern.compile uses a hardcoded, bounded alphanumeric constant regex incapable of ReDoS."
+    }
+  ]
+}
