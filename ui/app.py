@@ -1594,8 +1594,6 @@ def _render_security_pipeline(project: Path, llm_client: LLMClient, triage_key: 
                 st.warning("🟡 **INCOMPLETE** — " + " ".join(report.status_reasons))
             for error in report.errors:
                 st.error(error)
-    else:
-        st.info("Inspect files in the explorer above or click **🚀 Run Semgrep* Scan & AI Triage** to begin the security review.")
 
 
 imported_repos = list_imported_repos()
